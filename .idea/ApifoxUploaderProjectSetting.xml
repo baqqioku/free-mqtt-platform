@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ApifoxUploaderProjectSetting">
+    <option name="apifoxAccessToken" value="APS-X672jFcS3prXU7onFoFSEB0ICICg6G2s" />
+    <option name="apifoxApiOverwriteMode" value="覆盖所有字段" />
+    <option name="apifoxProjectIds">
+      <array>
+        <option value="# ModuleName:ProjectID" />
+        <option value="user-service:2915451" />
+        <option value="message-producer:3178664" />
+        <option value="tmm-admin:3178664" />
+        <option value="mqtt-route:7000829" />
+      </array>
+    </option>
+    <option name="yapiTokens" value="" />
+  </component>
+</project>
