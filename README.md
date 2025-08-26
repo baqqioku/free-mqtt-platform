@@ -256,10 +256,17 @@ POST http://localhost:23240/pushMsg
 Content-Type: application/json
 
 {
-  "userId": "123",
-  "messageId": "msg_001",
-  "ttl": 120000,
-  "data": "Hello World"
+    "userId": 2,
+    "messageId": 3,
+    "ttl": 53,
+    "updateTime": 174616022498,
+    "data": {
+        "msg": "hello",
+        "userAo": {
+            "userId": 0
+        }
+    },
+    "url": "http://nqozsrqo.pg/aikvtkh"
 }
 ```
 
@@ -268,6 +275,7 @@ Content-Type: application/json
 ```bash
 # 用户注册
 POST http://localhost:8084/reqister
+
 
 # 用户登录获取MQTT服务器信息
 POST http://localhost:8084/login
