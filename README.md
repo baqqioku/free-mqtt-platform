@@ -113,7 +113,8 @@ free-mqtt-platform/
 ### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone  https://github.com/baqqioku/free-mqtt-platform.git
+
 cd free-mqtt-platform
 ```
 
