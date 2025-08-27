@@ -464,9 +464,11 @@ done
 3. 配置ZooKeeper集群信息
 
 ###待实现功能
-1.消息的持久化存储
-2.客户端,测试用其他的mqtt客户端代替（比如MQTTX）
-3.消息回调监听器还完善
+1. 消息的持久化存储
+2. ssl未实现
+3. 客户端,测试用其他的mqtt客户端代替（比如MQTTX）
+4. 消息回调监听器还完善
+5. ...
 
 ## 🤝 贡献指南
 
@@ -482,8 +484,8 @@ done
 
 ## 📞 联系方式
 
-- 项目维护者: [Your Name]
-- 邮箱: [your.email@example.com]
+- 项目维护者: [baqqioku]
+- 邮箱: [baqqiokul@gmail.com]
 - 项目地址: [GitHub Repository URL]
 
 ## 🙏 致谢
