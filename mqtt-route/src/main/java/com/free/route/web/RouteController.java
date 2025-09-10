@@ -107,7 +107,8 @@ public class RouteController {
 
     @RequestMapping("/offerLine")
     public <T> BaseResponse offerLine(@RequestBody UserAo userAo){
-        return null;
+         accountService.offerLine(userAo.getUserId());
+         return BaseResponse.success();
     }
 
 }

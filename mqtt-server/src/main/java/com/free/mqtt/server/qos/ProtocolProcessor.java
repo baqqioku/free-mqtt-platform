@@ -87,19 +87,19 @@ public class ProtocolProcessor {
 
                 //自动定义topic
                 //if( !authChannel.getAuthChannel().isForCluster() ){
-                    String autoSub = interceptor.autoSub(authChannel.getClientId());
-                    if(null != autoSub){
+                String autoSub = interceptor.autoSub(authChannel.getClientId());
+                if(null != autoSub){
 
-                        logger.info("自动订阅topic:{},ClientId:{}", autoSub, authChannel.getClientId());
+                    logger.info("自动订阅topic:{},ClientId:{}", autoSub, authChannel.getClientId());
 
-                        Topic topic = new Topic(autoSub);
+                    Topic topic = new Topic(autoSub);
 
-                        Subscription newSubscription = new Subscription(authChannel.getClientId(), MqttQoS.AT_LEAST_ONCE, topic);
+                    Subscription newSubscription = new Subscription(authChannel.getClientId(), MqttQoS.AT_LEAST_ONCE, topic);
 
-                        clientSession.subscribe(topic, newSubscription);
+                    clientSession.subscribe(topic, newSubscription);
 
-                        subscriptionsDirectory.addSubscription(newSubscription);
-                    }
+                    subscriptionsDirectory.addSubscription(newSubscription);
+                }
                 //}
 
                 //通道建立连接，需要推送消息
