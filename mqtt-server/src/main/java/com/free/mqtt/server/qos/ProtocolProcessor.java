@@ -81,6 +81,19 @@ public class ProtocolProcessor {
 
     }
 
+    public void stop() {
+        if (willExecutor != null) {
+            willExecutor.shutdown();
+            try {
+                if (!willExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    willExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                willExecutor.shutdownNow();
+            }
+        }
+    }
+
     public void auth(AuthChannel authChannel){
         try{
             if( !authChannel.getAuthChannel().isActive() ){
@@ -125,7 +138,7 @@ public class ProtocolProcessor {
                 //}
 
                 List<StoredMessage> offlineMessages = interceptor.popOfflineMessages(authChannel.getClientId(), 200);
-                if (offlineMessages != null && offlineMessages.size() > 0) {
+                if (offlineMessages != null && !offlineMessages.isEmpty()) {
                     for (StoredMessage offline : offlineMessages) {
                         if (offline != null) {
                             clientSession.addSendMsg(offline);

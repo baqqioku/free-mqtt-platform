@@ -1,0 +1,155 @@
+ .../java/com/free/zk/ClusterServerMonitor.java     |  19 [32m+++[m[31m-[m
+ .../src/main/java/com/free/zk/ZookeeperClient.java | 119 [32m++++++++++++++++[m[31m-----[m
+ .../com/free/zk/core/ZkClusterServerMonitor.java   |   8 [32m+[m[31m-[m
+ .../java/com/free/zk/listener/ZkNodeListener.java  |  55 [32m++++++[m[31m----[m
+ .../algorithm/ConsistentHashRing$MurmurHash3.class | Bin [31m2570[m -> [32m2571[m bytes
+ .../free/common/algorithm/ConsistentHashRing.class | Bin [31m5279[m -> [32m5235[m bytes
+ .../free/common/constant/IMPushStatusEnum.class    | Bin [31m1522[m -> [32m1498[m bytes
+ .../com/free/common/constant/MqttConstant.class    | Bin [31m1162[m -> [32m1154[m bytes
+ .../free/common/constant/RedisKeyConstant.class    | Bin [31m624[m -> [32m616[m bytes
+ .../com/free/common/constant/StatusEnum.class      | Bin [31m3809[m -> [32m3770[m bytes
+ .../classes/com/free/common/req/BaseRequest.class  | Bin [31m610[m -> [32m606[m bytes
+ .../com/free/common/resp/BaseResponse.class        | Bin [31m4697[m -> [32m4692[m bytes
+ .../classes/com/free/common/utils/StringUtil.class | Bin [31m1118[m -> [32m1111[m bytes
+ .../classes/com/free/common/utils/TokenUtil.class  | Bin [31m3117[m -> [32m3116[m bytes
+ .../zk/ClusterServerMonitor$ClusterMonitor.class   | Bin [31m4418[m -> [32m4613[m bytes
+ .../classes/com/free/zk/ClusterServerMonitor.class | Bin [31m4376[m -> [32m4520[m bytes
+ .../classes/com/free/zk/IZkNodeListener.class      | Bin [31m381[m -> [32m381[m bytes
+ .../classes/com/free/zk/ZookeeperClient$1.class    | Bin [31m1426[m -> [32m1972[m bytes
+ .../classes/com/free/zk/ZookeeperClient$2.class    | Bin [31m1403[m -> [32m1417[m bytes
+ .../classes/com/free/zk/ZookeeperClient.class      | Bin [31m6055[m -> [32m8178[m bytes
+ .../classes/com/free/zk/config/ZkConfig.class      | Bin [31m1441[m -> [32m1441[m bytes
+ .../classes/com/free/zk/core/ClusterInfo.class     | Bin [31m1973[m -> [32m1973[m bytes
+ .../classes/com/free/zk/core/ServerInfo.class      | Bin [31m1787[m -> [32m1761[m bytes
+ .../com/free/zk/core/ZkClusterServerMonitor.class  | Bin [31m6409[m -> [32m6457[m bytes
+ .../classes/com/free/zk/event/BaseEvent.class      | Bin [31m827[m -> [32m827[m bytes
+ .../classes/com/free/zk/event/EventTypeConst.class | Bin [31m567[m -> [32m559[m bytes
+ .../classes/com/free/zk/event/MonitorEvent.class   | Bin [31m769[m -> [32m769[m bytes
+ .../classes/com/free/zk/event/RegisterEvent.class  | Bin [31m758[m -> [32m758[m bytes
+ .../classes/com/free/zk/event/UnMonitorEvent.class | Bin [31m756[m -> [32m756[m bytes
+ .../com/free/zk/listener/ZkNodeListener.class      | Bin [31m4471[m -> [32m4659[m bytes
+ .../main/java/com/free/MqttRouteApplication.java   |   2 [32m+[m[31m-[m
+ mqtt-route/src/main/resources/log4j2.xml           |   2 [32m+[m[31m-[m
+ .../classes/com/free/MqttRouteApplication.class    | Bin [31m728[m -> [32m703[m bytes
+ .../target/classes/com/free/route/ao/Hello.class   | Bin [31m831[m -> [32m831[m bytes
+ .../target/classes/com/free/route/ao/LoginAo.class | Bin [31m906[m -> [32m906[m bytes
+ .../classes/com/free/route/ao/PushMsgAo.class      | Bin [31m3429[m -> [32m3429[m bytes
+ .../target/classes/com/free/route/ao/UserAo.class  | Bin [31m561[m -> [32m561[m bytes
+ .../com/free/route/config/ClusterConfig.class      | Bin [31m1117[m -> [32m1117[m bytes
+ .../classes/com/free/route/config/HttpConfig.class | Bin [31m1120[m -> [32m1120[m bytes
+ .../com/free/route/service/AccountService.class    | Bin [31m406[m -> [32m406[m bytes
+ .../com/free/route/service/RouteService.class      | Bin [31m226[m -> [32m226[m bytes
+ .../route/service/impl/AccountServiceImpl.class    | Bin [31m4066[m -> [32m4091[m bytes
+ .../free/route/service/impl/RouteServiceImpl.class | Bin [31m4041[m -> [32m3991[m bytes
+ .../classes/com/free/route/vo/LoginReqVO.class     | Bin [31m1163[m -> [32m1145[m bytes
+ .../classes/com/free/route/vo/MqttServerVo.class   | Bin [31m1365[m -> [32m1365[m bytes
+ .../classes/com/free/route/vo/ReqisterVo.class     | Bin [31m816[m -> [32m816[m bytes
+ .../target/classes/com/free/route/vo/UserVo.class  | Bin [31m1266[m -> [32m1266[m bytes
+ .../com/free/route/web/RouteController.class       | Bin [31m6276[m -> [32m6399[m bytes
+ mqtt-route/target/classes/log4j2.xml               |   2 [32m+[m[31m-[m
+ mqtt-server/pom.xml                                |   2 [32m+[m[31m-[m
+ .../main/java/com/free/MqttBrokerApplication.java  |   2 [32m+[m[31m-[m
+ .../free/mqtt/server/config/HttpServerConfig.java  |   2 [32m+[m[31m-[m
+ .../mqtt/server/interceptor/MqttInterceptor.java   |  13 [32m++[m[31m-[m
+ .../mqtt/server/netty/handler/MqttMsgHandler.java  |   6 [32m+[m[31m-[m
+ mqtt-server/src/main/resources/log4j2.xml          |   2 [32m+[m[31m-[m
+ .../java/com/free/mqtt/test/MqttClusterTest.java   |  18 [32m+[m[31m---[m
+ .../classes/com/free/MqttBrokerApplication.class   | Bin [31m2450[m -> [32m2425[m bytes
+ .../target/classes/com/free/ao/PushMsgAo.class     | Bin [31m3256[m -> [32m3252[m bytes
+ .../classes/com/free/config/ClusterConfig.class    | Bin [31m1105[m -> [32m1105[m bytes
+ .../com/free/config/MqttServerStarter.class        | Bin [31m1096[m -> [32m1106[m bytes
+ .../classes/com/free/mqtt/server/BaseThread.class  | Bin [31m2752[m -> [32m2761[m bytes
+ .../free/mqtt/server/MqttMsgProcessThread.class    | Bin [31m2709[m -> [32m2725[m bytes
+ .../com/free/mqtt/server/MqttPushRequest.class     | Bin [31m2222[m -> [32m2214[m bytes
+ .../com/free/mqtt/server/auth/AuthChannel.class    | Bin [31m2549[m -> [32m2549[m bytes
+ .../mqtt/server/auth/DefaultAuthorizator.class     | Bin [31m766[m -> [32m766[m bytes
+ .../com/free/mqtt/server/auth/IAuthorizator.class  | Bin [31m259[m -> [32m259[m bytes
+ .../concurrent/AsyncThreadPoolExecutor.class       | Bin [31m1748[m -> [32m1751[m bytes
+ .../server/concurrent/CallbackFutureTask.class     | Bin [31m1734[m -> [32m1750[m bytes
+ .../mqtt/server/concurrent/FutureCallBack.class    | Bin [31m338[m -> [32m338[m bytes
+ .../free/mqtt/server/config/HttpServerConfig.class | Bin [31m966[m -> [32m966[m bytes
+ .../com/free/mqtt/server/config/MqttConfig.class   | Bin [31m2683[m -> [32m2683[m bytes
+ .../free/mqtt/server/config/MqttServerConfig.class | Bin [31m1901[m -> [32m1901[m bytes
+ .../com/free/mqtt/server/event/MqttAuthEvent.class | Bin [31m685[m -> [32m685[m bytes
+ .../com/free/mqtt/server/event/MqttBaseEvent.class | Bin [31m694[m -> [32m694[m bytes
+ .../mqtt/server/event/MqttFlushCacheEvent.class    | Bin [31m336[m -> [32m336[m bytes
+ .../free/mqtt/server/handler/MqttBaseHandler.class | Bin [31m1973[m -> [32m1966[m bytes
+ .../handler/eventHandler/MqttAuthHandler$1.class   | Bin [31m1959[m -> [32m1981[m bytes
+ .../handler/eventHandler/MqttAuthHandler$2.class   | Bin [31m2187[m -> [32m2215[m bytes
+ .../handler/eventHandler/MqttAuthHandler.class     | Bin [31m2484[m -> [32m2489[m bytes
+ .../free/mqtt/server/interceptor/Interceptor.class | Bin [31m765[m -> [32m765[m bytes
+ .../mqtt/server/interceptor/MqttInterceptor.class  | Bin [31m5542[m -> [32m5712[m bytes
+ .../server/interceptor/RetryPushTimerTask.class    | Bin [31m3304[m -> [32m3208[m bytes
+ .../mqtt/server/listener/MqttMsgListener.class     | Bin [31m286[m -> [32m286[m bytes
+ .../listener/impl/Mqtt2HttpMsgListener.class       | Bin [31m3921[m -> [32m3841[m bytes
+ .../mqtt/server/netty/AbstractMqttServer.class     | Bin [31m1424[m -> [32m1424[m bytes
+ .../free/mqtt/server/netty/MqttNettyChannel.class  | Bin [31m3071[m -> [32m3066[m bytes
+ .../free/mqtt/server/netty/MqttNettyServer$1.class | Bin [31m2642[m -> [32m2666[m bytes
+ .../free/mqtt/server/netty/MqttNettyServer.class   | Bin [31m6460[m -> [32m6487[m bytes
+ .../mqtt/server/netty/handler/MqttMsgHandler.class | Bin [31m5318[m -> [32m5375[m bytes
+ .../server/netty/handler/MqttProcessHandler.class  | Bin [31m2244[m -> [32m2239[m bytes
+ .../free/mqtt/server/qos/ProtocolProcessor.class   | Bin [31m20238[m -> [32m19061[m bytes
+ .../com/free/mqtt/server/qos/Qos0Processor.class   | Bin [31m2679[m -> [32m2682[m bytes
+ .../com/free/mqtt/server/qos/Qos1Processor.class   | Bin [31m4468[m -> [32m4466[m bytes
+ .../com/free/mqtt/server/qos/Qos2Processor.class   | Bin [31m5294[m -> [32m5248[m bytes
+ .../com/free/mqtt/server/qos/QosProcessor.class    | Bin [31m4641[m -> [32m4514[m bytes
+ .../mqtt/server/session/SessionRepository.class    | Bin [31m3539[m -> [32m3547[m bytes
+ .../data/ClientSession$InboundFlightZone.class     | Bin [31m1684[m -> [32m1690[m bytes
+ .../data/ClientSession$OutboundFlightZone.class    | Bin [31m1688[m -> [32m1694[m bytes
+ .../session/data/ClientSession$QueueMsg.class      | Bin [31m1581[m -> [32m1598[m bytes
+ .../mqtt/server/session/data/ClientSession.class   | Bin [31m10574[m -> [32m10577[m bytes
+ .../server/session/data/MqttSubscription.class     | Bin [31m1097[m -> [32m1097[m bytes
+ .../mqtt/server/session/data/OfflineMessage.class  | Bin [31m1217[m -> [32m1217[m bytes
+ .../mqtt/server/session/data/StoredMessage.class   | Bin [31m4195[m -> [32m4190[m bytes
+ .../mqtt/server/session/data/WillMessage.class     | Bin [31m1211[m -> [32m1211[m bytes
+ .../subscriptions/ISubscriptionsDirectory.class    | Bin [31m507[m -> [32m507[m bytes
+ .../mqtt/server/subscriptions/TopicConstant.class  | Bin [31m756[m -> [32m748[m bytes
+ .../subscriptions/TreeSubscriptionDirectory.class  | Bin [31m2707[m -> [32m2712[m bytes
+ .../server/subscriptions/data/Subscription.class   | Bin [31m3016[m -> [32m3031[m bytes
+ .../mqtt/server/subscriptions/data/Topic.class     | Bin [31m3775[m -> [32m3835[m bytes
+ .../mqtt/server/subscriptions/data/TopicNode.class | Bin [31m5745[m -> [32m5772[m bytes
+ .../server/subscriptions/data/TopicNodeTest.class  | Bin [31m2582[m -> [32m2643[m bytes
+ .../free/mqtt/server/utils/MqttBrokerUtil.class    | Bin [31m7993[m -> [32m7967[m bytes
+ .../free/mqtt/server/utils/MqttNettyUtils.class    | Bin [31m1925[m -> [32m1917[m bytes
+ .../com/free/mqtt/server/utils/MsgUtil.class       | Bin [31m499[m -> [32m500[m bytes
+ .../com/free/mqtt/server/utils/PerfUtil.class      | Bin [31m1540[m -> [32m1528[m bytes
+ .../target/classes/com/free/vo/LoginReqVO.class    | Bin [31m1067[m -> [32m1049[m bytes
+ .../target/classes/com/free/vo/MqttServerVo.class  | Bin [31m1150[m -> [32m1150[m bytes
+ .../target/classes/com/free/vo/ReqisterVo.class    | Bin [31m847[m -> [32m847[m bytes
+ .../target/classes/com/free/vo/UserVo.class        | Bin [31m1263[m -> [32m1263[m bytes
+ .../target/classes/com/free/web/ClusterTest.class  | Bin [31m1506[m -> [32m1506[m bytes
+ .../classes/com/free/web/PushMsgController.class   | Bin [31m2240[m -> [32m2237[m bytes
+ mqtt-server/target/classes/log4j2.xml              |   2 [32m+[m[31m-[m
+ .../com/free/mqtt/test/MqttClusterTest.class       | Bin [31m2070[m -> [32m0[m bytes
+ 123 files changed, 166 insertions(+), 88 deletions(-)
+[1mdiff --git a/mqtt-server/src/main/java/com/free/mqtt/server/interceptor/MqttInterceptor.java b/mqtt-server/src/main/java/com/free/mqtt/server/interceptor/MqttInterceptor.java[m
+[1mindex 6835eca..250697d 100644[m
+[1m--- a/mqtt-server/src/main/java/com/free/mqtt/server/interceptor/MqttInterceptor.java[m
+[1m+++ b/mqtt-server/src/main/java/com/free/mqtt/server/interceptor/MqttInterceptor.java[m
+[36m@@ -65,7 +65,12 @@[m [mpublic class MqttInterceptor implements Interceptor{[m
+ [m
+     @Override[m
+     public boolean checkTtl(long createTime, long ttl) {[m
+[31m-        return false;[m
+[32m+[m[32m        if (ttl <= 0) {[m
+[32m+[m[32m            return true;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        long now = System.currentTimeMillis();[m
+[32m+[m[32m        long ttlMillis = ttl * 1000L;[m
+[32m+[m[32m        return now - createTime <= ttlMillis;[m
+     }[m
+ [m
+     @Override[m
+[36m@@ -97,8 +102,10 @@[m [mpublic class MqttInterceptor implements Interceptor{[m
+         String taskId= RetryPushTimerTask.genTaskId(clientId,msgId);[m
+         if(!StringUtil.isNullOrEmpty(taskId)){[m
+             RetryPushTimerTask  task = timeTaskMapInfo.get(taskId);[m
+[31m-            task.setCancel(false);[m
+[31m-            timeTaskMapInfo.remove(taskId);[m
+[32m+[m[32m            if (task != null) {[m
+[32m+[m[32m                task.setCancel(true);[m
+[32m+[m[32m                timeTaskMapInfo.remove(taskId);[m
+[32m+[m[32m            }[m
+         }else {[m
+             logger.info("taskId是null，不取消定时任务, clientId={}, msgId={}, topic={}", clientId, msgId);[m
+         }[m

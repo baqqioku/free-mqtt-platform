@@ -1,8 +1,5 @@
 package com.free.mqtt.server.concurrent;
 
-import sun.nio.ch.ThreadPool;
-
-import java.sql.Time;
 import java.util.concurrent.*;
 
 public class AsyncThreadPoolExecutor {
@@ -16,17 +13,22 @@ public class AsyncThreadPoolExecutor {
             this.eventAsyncTaskThreadNum = eventAsyncTaskThreadNum;
         }
 
-        threadPoolExecutor = new ThreadPoolExecutor(eventAsyncTaskThreadNum,eventAsyncTaskThreadNum,30, TimeUnit.SECONDS,new LinkedBlockingQueue<>());
+        threadPoolExecutor = new ThreadPoolExecutor(this.eventAsyncTaskThreadNum, this.eventAsyncTaskThreadNum, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     }
 
     public AsyncThreadPoolExecutor(int eventAsyncTaskThreadNum, int queueCapacity){
         if(eventAsyncTaskThreadNum > 0){
             this.eventAsyncTaskThreadNum = eventAsyncTaskThreadNum;
         }
-        threadPoolExecutor = new ThreadPoolExecutor(eventAsyncTaskThreadNum,eventAsyncTaskThreadNum,30,TimeUnit.SECONDS,new LinkedBlockingQueue<>());
+        BlockingQueue<Runnable> queue = queueCapacity > 0 ? new LinkedBlockingQueue<>(queueCapacity) : new LinkedBlockingQueue<>();
+        threadPoolExecutor = new ThreadPoolExecutor(this.eventAsyncTaskThreadNum, this.eventAsyncTaskThreadNum, 30, TimeUnit.SECONDS, queue);
     }
 
-    public Future<?> submit(FutureTask task){
+    public Future<?> submit(FutureTask<?> task){
+        return threadPoolExecutor.submit(task);
+    }
+
+    public Future<?> submit(Runnable task){
         return threadPoolExecutor.submit(task);
     }
 

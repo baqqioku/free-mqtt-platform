@@ -50,13 +50,16 @@ public class MqttServerConfig {
     @Value("${cluster.local.brokerName:broker-local}")
     private String clusterLocalBrokerName;
 
+    @Value("${mqtt.websocket.port:8083}")
     private int httpWebSocketPort;
 
+    @Value("${mqtt.websocket.ssl.port:8084}")
     private int httpsWebSocketPort;
 
+    @Value("${cluster.port:23245}")
     private int clusterPort;
 
-    //过滤topic
+    @Value("${mqtt.filter.topic:#}")
     private String filterTopic;
 
 

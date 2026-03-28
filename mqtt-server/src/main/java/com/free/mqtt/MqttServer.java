@@ -110,7 +110,15 @@ public class MqttServer {
     }
 
     public void stop() {
-        nettyServer.stop();
+        if (nettyServer != null) {
+            nettyServer.stop();
+        }
+        if (protocolProcessor != null) {
+            protocolProcessor.stop();
+        }
+        if (mqttMsgProcessThread != null) {
+            mqttMsgProcessThread.shutdown();
+        }
     }
 
 

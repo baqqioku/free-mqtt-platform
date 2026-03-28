@@ -76,14 +76,12 @@ public class QosProcessor {
                 continue;
             }
 
-            //logger.info("将推送的消息放入队列clientId:" + sub.getClientId() + " BusinessMsgId:" + pubMsg.getBusinessMsgId());
-
             // 将消息放入队列中
             clientSession.addSendMsg(pubMsg);
 
             // 对于需要推送消息的client，添加到事件队列
-            MqttNettyChannel currentChannel = sessionsRepository.getSession(sub.getClientId()).getChannel();
-            if(null != currentChannel && false == currentChannel.isHaveSendEvent() ){
+            MqttNettyChannel currentChannel = clientSession.getChannel();
+            if(null != currentChannel && !currentChannel.isHaveSendEvent()){
                 currentChannel.fireEvent(new MqttFlushCacheEvent());
             }
         }

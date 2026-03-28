@@ -102,7 +102,7 @@ public class MqttMsgHandler extends SimpleChannelInboundHandler<MqttMessage> {
         if(null == nettyChannel){
 
             if( evt instanceof MqttFlushCacheEvent){
-                logger.info("通道已经关闭 ，但还有消息未推送 clientId:{}", nettyChannel.getClientId());
+                logger.info("通道已经关闭 ，但还有消息未推送");
             }
 
             if( evt instanceof IdleStateEvent ) {

@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # ===================
+  # 基础设施服务
+  # ===================
+  
+  # ZooKeeper - 集群协调
+  zookeeper:
+    image: zookeeper:3.8
+    container_name: mqtt-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
+    healthcheck:
+      test: ["CMD", "zkServer.sh", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mqtt-network
+
+  # Redis - 离线消息队列
+  redis:
+    image: redis:7-alpine
+    container_name: mqtt-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass 123 --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mqtt-network
+
+  # ===================
+  # MQTT 服务
+  # ===================
+  
+  # MQTT Broker Server
+  mqtt-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mqtt-server
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "23240:23240"  # HTTP API
+      - "23242:23242"  # MQTT TCP
+      - "23243:23243"  # MQTT SSL (未启用)
+    environment:
+      - SERVICE_NAME=mqtt-server
+      - SERVER_PORT=23240
+      - JAVA_OPTS=-Xms512m -Xmx1g -XX:+UseG1GC
+    volumes:
+      - ./mqtt-server/src/main/resources/application.properties:/app/config/mqtt-server.properties:ro
+      - mqtt-server-logs:/app/logs
+    networks:
+      - mqtt-network
+    restart: unless-stopped
+
+  # MQTT Route Service
+  mqtt-route:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mqtt-route
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8084:8084"
+    environment:
+      - SERVICE_NAME=mqtt-route
+      - SERVER_PORT=8084
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseG1GC
+    volumes:
+      - ./mqtt-route/src/main/resources/application.properties:/app/config/mqtt-route.properties:ro
+      - mqtt-route-logs:/app/logs
+    networks:
+      - mqtt-network
+    restart: unless-stopped
+
+# ===================
+# 网络配置
+# ===================
+networks:
+  mqtt-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ===================
+# 数据卷
+# ===================
+volumes:
+  zookeeper-data:
+  zookeeper-datalog:
+  redis-data:
+  mqtt-server-logs:
+  mqtt-route-logs:

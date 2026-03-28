@@ -46,14 +46,14 @@ public class MqttInterceptor implements Interceptor{
 
     @Override
     public void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId) {
-        MqttSendMsgEndEvent mqttSendMsgEndEvent = new MqttSendMsgEndEvent(clientId,topic,pushMessageId);
+        MqttSendMsgEndEvent mqttSendMsgEndEvent = new MqttSendMsgEndEvent(clientId, topic, qos, pushMessageId);
 
         mqttServer.getMqttMsgProcessThread().submit(mqttSendMsgEndEvent);
     }
 
     @Override
     public void notifyDisconnect(String ip, String clientId) {
-        MqttDisconnectEvent mqttDisconnectEvent = new MqttDisconnectEvent(clientId);
+        MqttDisconnectEvent mqttDisconnectEvent = new MqttDisconnectEvent(clientId, ip);
 
         mqttServer.getMqttMsgProcessThread().submit(mqttDisconnectEvent);
     }

@@ -3,6 +3,10 @@ package com.free.mqtt.server.netty;
 import com.free.common.constant.MqttConstant;
 import com.free.mqtt.server.config.MqttServerConfig;
 import com.free.mqtt.server.netty.handler.MqttMsgHandler;
+import com.free.mqtt.server.netty.handler.MqttWebSocketCodec;
+import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import com.free.mqtt.server.netty.handler.MqttProcessHandler;
 import com.free.mqtt.server.qos.ProtocolProcessor;
 import io.netty.bootstrap.ServerBootstrap;
@@ -74,35 +78,34 @@ public class MqttNettyServer extends AbstractMqttServer {
             nettyChannelClass = NioServerSocketChannel.class;
         }
 
-        //初始化mqtt集群
-        clusterPlainTCPTransport();
-
-        // ssl
-        initializeSSLTCPTransport();
-
-        //初始化tcp serversocket
+        // TCP listener
         initializePlainTCPTransport();
 
-        //初始化web serversocket
+        // SSL listener
+        initializeSSLTCPTransport();
+
+        // WebSocket listener
         initializeWebSocketTransport();
 
+        // SSL WebSocket listener
+        initializeHttpsWebSocketTransport();
     }
 
-    private void clusterPlainTCPTransport() throws Exception {
-        ChannelInitializer<SocketChannel> channelChannelInitializer = new ChannelInitializer<SocketChannel>() {
+    private void initializePlainTCPTransport() throws Exception {
+        ChannelInitializer<SocketChannel> channelInitializer = new ChannelInitializer<SocketChannel>() {
             @Override
             protected void initChannel(SocketChannel ch) throws Exception {
                 ch.config().setAllocator(byteBufAllocator);
                 ch.config().setRecvByteBufAllocator(recvByteBufAllocator);
-                ChannelPipeline pipeline= ch.pipeline();
-                pipeline.addFirst("idleStaleHandler",new IdleStateHandler(MqttConstant.CHANNEL_TIMEOUT_SECONDS,0,0));
-                pipeline.addLast("decoder",new MqttDecoder(MqttConstant.AGGREGATOR_MAX_SIZE));
+                ChannelPipeline pipeline = ch.pipeline();
+                pipeline.addFirst("idleStateHandler", new IdleStateHandler(MqttConstant.CHANNEL_TIMEOUT_SECONDS, 0, 0));
+                pipeline.addLast("decoder", new MqttDecoder(MqttConstant.AGGREGATOR_MAX_SIZE));
                 pipeline.addLast("encoder", MqttEncoder.INSTANCE);
-                pipeline.addLast("handler",new MqttMsgHandler(getMqttProcessHandler()));
+                pipeline.addLast("handler", new MqttMsgHandler(getMqttProcessHandler()));
             }
         };
 
-        initFactory(MqttConstant.DEFAULT_HOST,serverConfig.getTcpPort(),"TCP MQTT", channelChannelInitializer);
+        initFactory(MqttConstant.DEFAULT_HOST, serverConfig.getTcpPort(), "TCP MQTT", channelInitializer);
     }
 
     private void initializeSSLTCPTransport() throws Exception{
@@ -205,12 +208,60 @@ public class MqttNettyServer extends AbstractMqttServer {
         }
     }
 
-    private void initializePlainTCPTransport(){
-        // TODO: 2025/8/22
+    private void initializeWebSocketTransport() throws Exception {
+        ChannelInitializer<SocketChannel> channelInitializer = new ChannelInitializer<SocketChannel>() {
+            @Override
+            protected void initChannel(SocketChannel ch) throws Exception {
+                ch.config().setAllocator(byteBufAllocator);
+                ch.config().setRecvByteBufAllocator(recvByteBufAllocator);
+                ChannelPipeline pipeline = ch.pipeline();
+                pipeline.addFirst("idleStateHandler", new IdleStateHandler(MqttConstant.CHANNEL_TIMEOUT_SECONDS, 0, 0));
+
+                pipeline.addLast("httpServerCodec", new HttpServerCodec());
+                pipeline.addLast("httpObjectAggregator", new HttpObjectAggregator(MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("webSocketServerProtocolHandler", new WebSocketServerProtocolHandler("/mqtt", "mqtt, mqttv3.1, mqttv3.1.1", true, MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("webSocketCodec", new MqttWebSocketCodec());
+
+                pipeline.addLast("decoder", new MqttDecoder(MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("encoder", MqttEncoder.INSTANCE);
+                pipeline.addLast("handler", new MqttMsgHandler(getMqttProcessHandler()));
+            }
+        };
+
+        initFactory(MqttConstant.DEFAULT_HOST, serverConfig.getHttpWebSocketPort(), "WebSocket MQTT", channelInitializer);
     }
 
-    private void initializeWebSocketTransport(){
-        // TODO: 2025/8/22
+    private void initializeHttpsWebSocketTransport() throws Exception {
+        if (!serverConfig.isSslEnabled()) {
+            return;
+        }
+        SslContext sslContext = buildSslContext();
+        if (sslContext == null) {
+            logger.warn("SSL enabled but no valid keystore found, skipping HTTPS WebSocket listener.");
+            return;
+        }
+        ChannelInitializer<SocketChannel> channelInitializer = new ChannelInitializer<SocketChannel>() {
+            @Override
+            protected void initChannel(SocketChannel ch) throws Exception {
+                ch.config().setAllocator(byteBufAllocator);
+                ch.config().setRecvByteBufAllocator(recvByteBufAllocator);
+                ChannelPipeline pipeline = ch.pipeline();
+                pipeline.addFirst("idleStateHandler", new IdleStateHandler(MqttConstant.CHANNEL_TIMEOUT_SECONDS, 0, 0));
+
+                pipeline.addLast("ssl", createSslHandler(sslContext, serverConfig.isSslNeedClientAuth()));
+
+                pipeline.addLast("httpServerCodec", new HttpServerCodec());
+                pipeline.addLast("httpObjectAggregator", new HttpObjectAggregator(MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("webSocketServerProtocolHandler", new WebSocketServerProtocolHandler("/mqtt", "mqtt, mqttv3.1, mqttv3.1.1", true, MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("webSocketCodec", new MqttWebSocketCodec());
+
+                pipeline.addLast("decoder", new MqttDecoder(MqttConstant.AGGREGATOR_MAX_SIZE));
+                pipeline.addLast("encoder", MqttEncoder.INSTANCE);
+                pipeline.addLast("handler", new MqttMsgHandler(getMqttProcessHandler()));
+            }
+        };
+
+        initFactory(MqttConstant.DEFAULT_HOST, serverConfig.getHttpsWebSocketPort(), "HTTPS WebSocket MQTT", channelInitializer);
     }
 
     private SslHandler createSslHandler(SslContext sslContext, boolean needsClientAuth) {
