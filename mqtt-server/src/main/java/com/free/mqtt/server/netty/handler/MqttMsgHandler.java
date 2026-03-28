@@ -76,7 +76,11 @@ public class MqttMsgHandler extends SimpleChannelInboundHandler<MqttMessage> {
 
         logger.info("socket异常,clientId:{}", nettyChannel.getClientId(), cause);
 
-        mqttProcessHandler.processConnectionException(nettyChannel);
+        if (cause instanceof java.io.IOException) {
+            mqttProcessHandler.processConnectionLost(nettyChannel);
+        } else {
+            mqttProcessHandler.processConnectionException(nettyChannel);
+        }
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.free.mqtt.server.netty;
 
+import com.free.mqtt.server.session.data.WillMessage;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import org.slf4j.Logger;
@@ -18,6 +19,12 @@ public class MqttNettyChannel {
     private boolean isHaveSendEvent = false;
 
     protected boolean isAuth = false;
+
+    private boolean cleanSession = true;
+
+    private WillMessage willMessage;
+
+    private boolean disconnectReceived = false;
 
     public MqttNettyChannel(Channel channel){
         this.channel = channel;
@@ -97,5 +104,29 @@ public class MqttNettyChannel {
 
     public void setAuth(boolean auth) {
         isAuth = auth;
+    }
+
+    public boolean isCleanSession() {
+        return cleanSession;
+    }
+
+    public void setCleanSession(boolean cleanSession) {
+        this.cleanSession = cleanSession;
+    }
+
+    public WillMessage getWillMessage() {
+        return willMessage;
+    }
+
+    public void setWillMessage(WillMessage willMessage) {
+        this.willMessage = willMessage;
+    }
+
+    public boolean isDisconnectReceived() {
+        return disconnectReceived;
+    }
+
+    public void setDisconnectReceived(boolean disconnectReceived) {
+        this.disconnectReceived = disconnectReceived;
     }
 }

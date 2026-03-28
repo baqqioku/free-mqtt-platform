@@ -5,6 +5,8 @@ import com.free.ao.PushMsgAo;
 import com.free.common.constant.MqttConstant;
 import com.free.mqtt.server.MqttMsgProcessThread;
 import com.free.mqtt.server.MqttPushRequest;
+import com.free.mqtt.server.auth.DefaultAuthorizator;
+import com.free.mqtt.server.auth.IAuthorizator;
 import com.free.mqtt.server.config.HttpServerConfig;
 import com.free.mqtt.server.config.MqttConfig;
 import com.free.mqtt.server.config.MqttServerConfig;
@@ -16,6 +18,7 @@ import com.free.mqtt.server.netty.AbstractMqttServer;
 import com.free.mqtt.server.netty.MqttNettyServer;
 import com.free.mqtt.server.netty.handler.MqttProcessHandler;
 import com.free.mqtt.server.qos.ProtocolProcessor;
+import com.free.mqtt.server.qos.RetainedRepository;
 import com.free.mqtt.server.session.SessionRepository;
 import com.free.mqtt.server.subscriptions.ISubscriptionsDirectory;
 import com.free.mqtt.server.subscriptions.TreeSubscriptionDirectory;
@@ -77,17 +80,28 @@ public class MqttServer {
             subscriptionsDirectory = new TreeSubscriptionDirectory();
             sessionRepository = new SessionRepository(subscriptionsDirectory);
 
-            protocolProcessor = new ProtocolProcessor(sessionRepository, interceptor, subscriptionsDirectory);
+            IAuthorizator authorizator = new DefaultAuthorizator(
+                    mqttServerConfig.getAclFile(),
+                    mqttServerConfig.isAclEnabled(),
+                    mqttServerConfig.isAclDefaultAllow(),
+                    mqttServerConfig.getAclReloadSeconds()
+            );
+            protocolProcessor = new ProtocolProcessor(sessionRepository, interceptor, subscriptionsDirectory, authorizator, mqttServerConfig.getWillDelaySeconds());
             MqttProcessHandler mqttProcessHandler = new MqttProcessHandler(protocolProcessor);
 
             mqttMsgListener  = new Mqtt2HttpMsgListener(redisTemplate,this);
             mqttMsgProcessThread = new MqttMsgProcessThread(this,50);
+            RetainedRepository.init(redisTemplate);
 
             nettyServer = new MqttNettyServer(mqttServerConfig, mqttProcessHandler);
 
-            ServerInfo serverInfo = clusterServerMonitor.initServerInfo(mqttServerConfig.getTcpPort(),httpServerConfig.getHttpPort());
-            clusterServerMonitor.register(serverInfo);
-            clusterServerMonitor.monitor();
+            if (mqttServerConfig.isClusterEnabled()) {
+                ServerInfo serverInfo = clusterServerMonitor.initServerInfo(mqttServerConfig.getTcpPort(), httpServerConfig.getHttpPort());
+                clusterServerMonitor.register(serverInfo);
+                clusterServerMonitor.monitor();
+            } else {
+                logger.info("Cluster disabled, skip ZooKeeper registration.");
+            }
         } catch (Exception e) {
             logger.error("启动IM消息中心服务异常", e);
 
@@ -106,7 +120,7 @@ public class MqttServer {
             String topic = request.getTargetTopic();
             byte[] payload = request.getJsonData().getBytes("utf-8");
             MqttQoS qos = MqttQoS.AT_LEAST_ONCE;
-            Integer businessMsgId = request.getBusinessMsgIdId();
+            Integer businessMsgId = request.getBusinessMsgId();
             long createTime = request.getRequestProcEndTime();
             long ttl = request.getTtl();
 
@@ -118,6 +132,10 @@ public class MqttServer {
 
     public ProtocolProcessor getProtocolProcessor() {
         return protocolProcessor;
+    }
+
+    public MqttConfig getMqttConfig() {
+        return mqttConfig;
     }
 
     public void setProtocolProcessor(ProtocolProcessor protocolProcessor) {

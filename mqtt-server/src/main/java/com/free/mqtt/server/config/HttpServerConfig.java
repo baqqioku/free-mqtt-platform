@@ -19,11 +19,11 @@ public class HttpServerConfig {
         this.httpPort = httpPort;
     }
 
-    @Value("${ssl.port:8443}")
     public int getSslPort() {
         return sslPort;
     }
 
+    @Value("${ssl.port:8443}")
     public void setSslPort(int sslPort) {
         this.sslPort = sslPort;
     }

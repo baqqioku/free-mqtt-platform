@@ -23,7 +23,13 @@ public class MqttBrokerUtil {
     }
 
     public static MqttPublishMessage mqttPublishMessage(int msgId, StoredMessage pubMsg) {
-        MqttFixedHeader fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, false, pubMsg.getQos(), false, 0);
+        MqttFixedHeader fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, false, pubMsg.getQos(), pubMsg.isRetained(), 0);
+        MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(pubMsg.getTopic(), msgId);
+        return new MqttPublishMessage(fixedHeader, varHeader, Unpooled.copiedBuffer(pubMsg.getPayload()));
+    }
+
+    public static MqttPublishMessage mqttPublishMessage(int msgId, StoredMessage pubMsg, boolean dup) {
+        MqttFixedHeader fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, dup, pubMsg.getQos(), pubMsg.isRetained(), 0);
         MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(pubMsg.getTopic(), msgId);
         return new MqttPublishMessage(fixedHeader, varHeader, Unpooled.copiedBuffer(pubMsg.getPayload()));
     }

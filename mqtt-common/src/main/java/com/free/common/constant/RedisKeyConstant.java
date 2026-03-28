@@ -9,4 +9,6 @@ public class RedisKeyConstant {
     public static String USER_ID_CREATE = "user:inc";
 
     public static String USER_PREF = "user:";
+
+    public static String MQTT_OFFLINE = "mqtt:offline:";
 }

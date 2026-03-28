@@ -4,6 +4,7 @@ import com.free.zk.config.ZkConfig;
 import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.IZkDataListener;
 import org.I0Itec.zkclient.ZkClient;
+import org.I0Itec.zkclient.exception.ZkNodeExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,7 @@ public class ZookeeperClient {
     private ZkClient zkClient;
 
     private Map<String,IZkChildListener> pathListener = new ConcurrentHashMap<>();
+    private Map<String, IZkDataListener> dataListener = new ConcurrentHashMap<>();
 
     public ZookeeperClient(ZkConfig zkConfig){
         try {
@@ -40,17 +42,23 @@ public class ZookeeperClient {
             }
             String childPath = rootPath + "/" + nodeName;
 
-
             if (zkClient.exists(childPath)) {
-                zkClient.writeData(childPath, data);
-                //zkClient.delete(childPath);
-            } else {
+                try {
+                    zkClient.delete(childPath);
+                } catch (Exception ignored) {
+                }
+            }
+
+            try {
                 zkClient.createEphemeral(childPath, data);
+            } catch (ZkNodeExistsException e) {
+                zkClient.writeData(childPath, data);
             }
             logger.info("注册节点：{},{}",rootPath,childPath);
 
         }catch (Exception e){
             logger.error("创建节点异常",e);
+            rtv = false;
         }
 
         return rtv;
@@ -86,12 +94,20 @@ public class ZookeeperClient {
         if(pathListener.get(rootPath) != null){
             return true;
         }
+        if (!zkClient.exists(rootPath)) {
+            zkClient.createPersistent(rootPath, true);
+        }
         IZkChildListener zkChildListener =  new IZkChildListener() {
             @Override
             public void handleChildChange(String parentPath, List<String> currentChilds) throws Exception {
 
                 logger.info(parentPath);
                 logger.info(currentChilds.toString());
+                if (currentChilds != null) {
+                    for (String child : currentChilds) {
+                        subscribeChildDataChanges(rootPath + "/" + child, listener);
+                    }
+                }
                 listener.notify(rootPath,currentChilds);
 
             }
@@ -104,19 +120,7 @@ public class ZookeeperClient {
         if (existingChildren != null) {
             for (String child : existingChildren) {
                 String childPath = rootPath + "/" + child;
-                zkClient.subscribeDataChanges(childPath, new IZkDataListener() {
-                    @Override
-                    public void handleDataChange(String dataPath, Object data) throws Exception {
-                        logger.info("节点数据变更：{}",data.toString());
-                        listener.notifyDataChange(dataPath,data);
-                    }
-
-                    @Override
-                    public void handleDataDeleted(String dataPath) throws Exception {
-                        logger.info("节点删除：{}",dataPath);
-                        listener.notifyDataDeleted(dataPath);
-                    }
-                });
+                subscribeChildDataChanges(childPath, listener);
             }
         }
 
@@ -126,11 +130,27 @@ public class ZookeeperClient {
     }
 
     public void cancelMonitor(String rootPath) {
-        pathListener.remove(rootPath);
-        zkClient.unsubscribeChildChanges(rootPath, pathListener.get(rootPath));
+        IZkChildListener childListener = pathListener.remove(rootPath);
+        if (childListener != null) {
+            zkClient.unsubscribeChildChanges(rootPath, childListener);
+        }
+        for (Map.Entry<String, IZkDataListener> entry : new ArrayList<>(dataListener.entrySet())) {
+            String dataPath = entry.getKey();
+            if (dataPath.startsWith(rootPath + "/")) {
+                zkClient.unsubscribeDataChanges(dataPath, entry.getValue());
+                dataListener.remove(dataPath);
+            }
+        }
     }
 
     public void writeData(String path,String data){
+        int lastIndex = path.lastIndexOf("/");
+        if (lastIndex > 0) {
+            String parent = path.substring(0, lastIndex);
+            if (!zkClient.exists(parent)) {
+                zkClient.createPersistent(parent, true);
+            }
+        }
         zkClient.writeData(path,data);
     }
 
@@ -141,19 +161,62 @@ public class ZookeeperClient {
 
         if (!zkClient.exists(brokersPath)) {
             zkClient.createPersistent(brokersPath, true);
-            return 1;
         }
-        List<String> children = zkClient.getChildren(brokersPath);
-        int maxId = 0;
-        for (String child : children) {
-            if (child.startsWith("broker-")) {
+
+        String lockPath = brokersPath + "/.lock";
+        while (true) {
+            try {
+                zkClient.createEphemeral(lockPath, "");
+                break;
+            } catch (ZkNodeExistsException e) {
                 try {
-                    int id = Integer.parseInt(child.substring("broker-".length()));
-                    maxId = Math.max(maxId, id);
-                } catch (NumberFormatException ignored) {}
+                    Thread.sleep(10);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
-        return maxId + 1;
+
+        try {
+            List<String> children = zkClient.getChildren(brokersPath);
+            int maxId = 0;
+            for (String child : children) {
+                if (child.startsWith("broker-")) {
+                    try {
+                        int id = Integer.parseInt(child.substring("broker-".length()));
+                        maxId = Math.max(maxId, id);
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+            return maxId + 1;
+        } finally {
+            try {
+                zkClient.delete(lockPath);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void subscribeChildDataChanges(String childPath, IZkNodeListener listener) {
+        if (dataListener.get(childPath) != null) {
+            return;
+        }
+        IZkDataListener zkDataListener = new IZkDataListener() {
+            @Override
+            public void handleDataChange(String dataPath, Object data) throws Exception {
+                logger.info("节点数据变更：{}", data.toString());
+                listener.notifyDataChange(dataPath, data);
+            }
+
+            @Override
+            public void handleDataDeleted(String dataPath) throws Exception {
+                logger.info("节点删除：{}", dataPath);
+                listener.notifyDataDeleted(dataPath);
+            }
+        };
+        dataListener.put(childPath, zkDataListener);
+        zkClient.subscribeDataChanges(childPath, zkDataListener);
     }
 
 

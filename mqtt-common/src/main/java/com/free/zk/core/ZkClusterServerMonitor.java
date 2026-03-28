@@ -22,15 +22,17 @@ public class ZkClusterServerMonitor extends ClusterServerMonitor {
 
 
     String path= "";
+    String brokersPath = "";
 
 
     public ZkClusterServerMonitor(ZkConfig zkConfig, String clusterName){
         super(clusterName);
         if (clusterName != null && !clusterName.isEmpty()) {
-            path = MQTT_CLUSTER_PATH  + "/"+ clusterName;
+            brokersPath = BROKER_PATH + "/" + clusterName;
         } else {
-            path = MQTT_CLUSTER_PATH + "/" + defaultClusterName;
+            brokersPath = BROKER_PATH + "/" + defaultClusterName;
         }
+        path = brokersPath;
         zookeeperClient  = new ZookeeperClient(zkConfig);
     }
 
@@ -106,7 +108,7 @@ public class ZkClusterServerMonitor extends ClusterServerMonitor {
         ServerInfo serverInfo = new ServerInfo();
 
         // 1. 获取 brokerName 编号
-        int brokerId = zookeeperClient.getNextBrokerId(path);
+        int brokerId = zookeeperClient.getNextBrokerId(brokersPath);
         serverInfo.setBrokerName("broker-" + brokerId);
 
         // 2. 获取 IP（适配容器 / 虚拟机）

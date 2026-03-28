@@ -3,6 +3,8 @@ package com.free.mqtt.server.interceptor;
 import com.free.mqtt.MqttServer;
 import com.free.mqtt.server.auth.AuthChannel;
 import com.free.mqtt.server.event.MqttAuthEvent;
+import com.free.mqtt.server.event.MqttDisconnectEvent;
+import com.free.mqtt.server.event.MqttSendMsgEndEvent;
 import com.free.mqtt.server.session.data.StoredMessage;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.util.HashedWheelTimer;
@@ -10,6 +12,7 @@ import io.netty.util.internal.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -43,12 +46,16 @@ public class MqttInterceptor implements Interceptor{
 
     @Override
     public void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId) {
+        MqttSendMsgEndEvent mqttSendMsgEndEvent = new MqttSendMsgEndEvent(clientId,topic,pushMessageId);
 
+        mqttServer.getMqttMsgProcessThread().submit(mqttSendMsgEndEvent);
     }
 
     @Override
     public void notifyDisconnect(String ip, String clientId) {
+        MqttDisconnectEvent mqttDisconnectEvent = new MqttDisconnectEvent(clientId);
 
+        mqttServer.getMqttMsgProcessThread().submit(mqttDisconnectEvent);
     }
 
     @Override
@@ -65,12 +72,37 @@ public class MqttInterceptor implements Interceptor{
 
     @Override
     public boolean checkTtl(long createTime, long ttl) {
-        return false;
+        if (ttl <= 0) {
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        long ttlMillis = ttl * 1000L;
+        return now - createTime <= ttlMillis;
     }
 
     @Override
     public String autoSub(String clientId) {
         return mqttServer.getMqttMsgListener().autoSub(clientId);
+    }
+
+    @Override
+    public void storeOfflineMessage(long userId, StoredMessage msg) {
+        mqttServer.getMqttMsgListener().storeOfflineMessage(userId, msg);
+    }
+
+    @Override
+    public List<StoredMessage> popOfflineMessages(String clientId, int maxCount) {
+        return mqttServer.getMqttMsgListener().popOfflineMessages(clientId, maxCount);
+    }
+
+    @Override
+    public void markInflight(long userId, String msgUUID, long sendAtSec) {
+        mqttServer.getMqttMsgListener().markInflight(userId, msgUUID, sendAtSec);
+    }
+
+    @Override
+    public void ackMessage(long userId, String msgUUID) {
+        mqttServer.getMqttMsgListener().ackMessage(userId, msgUUID);
     }
 
     @Override
@@ -97,8 +129,10 @@ public class MqttInterceptor implements Interceptor{
         String taskId= RetryPushTimerTask.genTaskId(clientId,msgId);
         if(!StringUtil.isNullOrEmpty(taskId)){
             RetryPushTimerTask  task = timeTaskMapInfo.get(taskId);
-            task.setCancel(false);
-            timeTaskMapInfo.remove(taskId);
+            if (task != null) {
+                task.setCancel(true);
+                timeTaskMapInfo.remove(taskId);
+            }
         }else {
             logger.info("taskId是null，不取消定时任务, clientId={}, msgId={}, topic={}", clientId, msgId);
         }

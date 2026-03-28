@@ -272,6 +272,31 @@ public class ClientSession implements Serializable {
         inboundFlightZone = null;
     }
 
+    public void disconnectChannel(boolean clearQueueAndInflight) {
+        if (channel != null) {
+            channel.close();
+            channel = null;
+        }
+        if (clearQueueAndInflight) {
+            try {
+                sendQueue.clear();
+            } catch (Exception ignored) {
+            }
+            try {
+                if (outboundFlightZone != null) {
+                    outboundFlightZone.clear();
+                }
+            } catch (Exception ignored) {
+            }
+            try {
+                if (inboundFlightZone != null) {
+                    inboundFlightZone.clear();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
 
 
     public long getConnectTime() {

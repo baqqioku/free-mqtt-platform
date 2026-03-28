@@ -52,17 +52,14 @@ public abstract class ClusterServerMonitor {
 
     public abstract boolean writeData(String path,String data);
 
-    {
-        Thread clusterMonitor = new Thread(new ClusterMonitor());
-        clusterMonitor.start();
-    }
-
     public ClusterServerMonitor() {
         this.clusterName = defaultClusterName;
+        startClusterMonitor();
     }
 
     public ClusterServerMonitor(String clusterName) {
         this.clusterName = StringUtils.isEmpty(clusterName) ? defaultClusterName : clusterName;
+        startClusterMonitor();
     }
 
     public ClusterInfo getClusterInfo() {
@@ -159,10 +156,15 @@ public abstract class ClusterServerMonitor {
 
                 if (System.currentTimeMillis() - clusterInfo.getRefreshTime() > REFRESH_TIME_INTERVAL) {
                     List<ServerInfo> serverInfoList = getData();
+                    if (serverInfoList == null) {
+                        continue;
+                    }
                     clusterInfo.setServerInfoList(serverInfoList);
+                    clusterInfo.getBrokerMap().clear();
                     for (ServerInfo serverInfo : serverInfoList) {
                         clusterInfo.getBrokerMap().put(serverInfo.getBrokerName(), serverInfo);
                     }
+                    clusterInfo.setRefreshTime(System.currentTimeMillis());
                 }
             }
         }
@@ -186,6 +188,13 @@ public abstract class ClusterServerMonitor {
 
     public void addZkEvent(BaseEvent zkEvent) {
         clusterMonitor.addEvent(zkEvent);
+    }
+
+    private void startClusterMonitor() {
+        clusterMonitor = new ClusterMonitor();
+        Thread thread = new Thread(clusterMonitor);
+        thread.setDaemon(true);
+        thread.start();
     }
 
 }

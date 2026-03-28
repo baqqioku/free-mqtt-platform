@@ -8,6 +8,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class MqttRouteApplication {
 
     public static void main(String[] args){
-        SpringApplication.run(MqttRouteApplication.class);
+        SpringApplication.run(MqttRouteApplication.class, args);
     }
 }

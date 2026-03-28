@@ -3,7 +3,6 @@ package com.free.mqtt.server.session;
 import com.free.mqtt.server.netty.MqttNettyChannel;
 import com.free.mqtt.server.session.data.ClientSession;
 import com.free.mqtt.server.subscriptions.ISubscriptionsDirectory;
-import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +21,24 @@ public class SessionRepository {
         this.iSubscriptionsDirectory = iSubscriptionsDirectory;
     }
 
+    public static class OpenResult {
+        private final ClientSession session;
+        private final boolean sessionPresent;
+
+        public OpenResult(ClientSession session, boolean sessionPresent) {
+            this.session = session;
+            this.sessionPresent = sessionPresent;
+        }
+
+        public ClientSession getSession() {
+            return session;
+        }
+
+        public boolean isSessionPresent() {
+            return sessionPresent;
+        }
+    }
+
     public boolean removeClinetSession(MqttNettyChannel channel, String clientId){
         ClientSession clientSession = sessionsCache.get(clientId);
         if(null == clientSession){
@@ -33,29 +50,50 @@ public class SessionRepository {
                 return false;
             }
 
-            sessionsCache.remove(clientId);
-            clientSession.close();
+            if (clientSession.isCleanSession()) {
+                sessionsCache.remove(clientId);
+                clientSession.close();
+            } else {
+                clientSession.disconnectChannel(true);
+            }
         }
 
         return true;
-    };
+    }
 
-    public ClientSession createClientSession(MqttNettyChannel channel, String clientID){
-//        logger.info("create get keys:{},clientId:{}", sessionsCache.keySet(), clientID);
-        ClientSession clientSession = null;
+    public OpenResult openOrCreateSession(MqttNettyChannel channel, String clientID, boolean cleanSession){
+        ClientSession clientSession;
         synchronized (this) {
             clientSession = sessionsCache.get(clientID);
-            if(null != clientSession){
-                clientSession.close();
+            if (cleanSession) {
+                if (clientSession != null) {
+                    clientSession.close();
+                    sessionsCache.remove(clientID);
+                }
+                clientSession = new ClientSession(clientID, iSubscriptionsDirectory, channel);
+                clientSession.setCleanSession(true);
+                clientSession.setKeepAliveSeconds(5*60*1000);
+                clientSession.setConnectTime(System.currentTimeMillis());
+                sessionsCache.put(clientID, clientSession);
+                return new OpenResult(clientSession, false);
+            }
+
+            if (clientSession != null) {
+                clientSession.disconnectChannel(true);
+                clientSession.setChannel(channel);
+                clientSession.setCleanSession(false);
+                clientSession.setConnectTime(System.currentTimeMillis());
+                sessionsCache.put(clientID, clientSession);
+                return new OpenResult(clientSession, true);
             }
 
             clientSession = new ClientSession(clientID, iSubscriptionsDirectory, channel);
-            clientSession.setKeepAliveSeconds(5*60*1000);//session的保存时间
+            clientSession.setCleanSession(false);
+            clientSession.setKeepAliveSeconds(5*60*1000);
             clientSession.setConnectTime(System.currentTimeMillis());
-            sessionsCache.put(clientID,clientSession);
+            sessionsCache.put(clientID, clientSession);
+            return new OpenResult(clientSession, false);
         }
-
-        return clientSession;
     }
 
     public void putClinetSession(String clientId,ClientSession clientSession){
@@ -82,3 +120,4 @@ public class SessionRepository {
         this.iSubscriptionsDirectory = iSubscriptionsDirectory;
     }
 }
+

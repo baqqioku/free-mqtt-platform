@@ -1,5 +1,6 @@
 package com.free.mqtt.server.qos;
 
+import com.free.common.constant.MqttConstant;
 import com.free.mqtt.server.auth.IAuthorizator;
 import com.free.mqtt.server.event.MqttFlushCacheEvent;
 import com.free.mqtt.server.interceptor.Interceptor;
@@ -65,6 +66,10 @@ public class Qos1Processor extends QosProcessor {
                 return;
             }
             interceptor.cancelPushMsgTimeTask(clientSession.getClientId(), msgId);
+            long userId = parseUserIdFromTopic(inflightMsg.getTopic());
+            if (userId > 0 && inflightMsg.getMsgUUID() != null) {
+                interceptor.ackMessage(userId, inflightMsg.getMsgUUID());
+            }
 
 //			logger.info("推送的消息 响应clientId:{}, messageId:{}", inflightMsg.getClientID(), inflightMsg.getMessageId());
 
@@ -76,6 +81,24 @@ public class Qos1Processor extends QosProcessor {
 
         }finally{
             clientSession.fireEvent(new MqttFlushCacheEvent());
+        }
+    }
+
+    private long parseUserIdFromTopic(String topic) {
+        if (topic == null) {
+            return -1;
+        }
+        if (!topic.startsWith(MqttConstant.brokerToClientTopic)) {
+            return -1;
+        }
+        String tail = topic.substring(MqttConstant.brokerToClientTopic.length());
+        if (tail.isEmpty()) {
+            return -1;
+        }
+        try {
+            return Long.parseLong(tail);
+        } catch (Exception e) {
+            return -1;
         }
     }
 }

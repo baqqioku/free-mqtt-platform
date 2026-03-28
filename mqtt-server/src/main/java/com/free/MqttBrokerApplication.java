@@ -18,7 +18,7 @@ public class MqttBrokerApplication implements CommandLineRunner {
     private MqttServer mqttServer;
 
     public static void main(String[] args){
-        SpringApplication.run(MqttBrokerApplication.class);
+        SpringApplication.run(MqttBrokerApplication.class, args);
         logger.info("启动Server 成功");
     }
 
@@ -28,13 +28,12 @@ public class MqttBrokerApplication implements CommandLineRunner {
 
         mqttServer.start();
 
-        // 注册关闭钩子
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("JVM 关闭钩子触发，开始关闭 MqttServer...");
             try {
-                mqttServer.stop(); // 你自己实现的 stop 方法
+                mqttServer.stop();
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.error("关闭 MqttServer 失败", e);
             }
             logger.info("MqttServer 已关闭");
         }));

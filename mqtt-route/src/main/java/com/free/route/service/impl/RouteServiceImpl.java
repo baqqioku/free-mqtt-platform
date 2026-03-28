@@ -5,7 +5,7 @@ import com.free.route.service.RouteService;
 import com.free.route.vo.MqttServerVo;
 import com.free.zk.core.ClusterInfo;
 import com.free.zk.core.ServerInfo;
-import com.free.zk.core.ZkClusterServerMonitor;
+import com.free.zk.ClusterServerMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +23,7 @@ public class RouteServiceImpl implements RouteService {
     private static final Logger logger = LoggerFactory.getLogger(RouteServiceImpl.class);
 
     @Autowired
-    private ZkClusterServerMonitor zkClusterServerMonitor;
+    private ClusterServerMonitor clusterServerMonitor;
 
     @Autowired
     private RedisTemplate<String,String> redisTemplate;
@@ -31,7 +31,7 @@ public class RouteServiceImpl implements RouteService {
     @Override
     public MqttServerVo lbsServer(Long userId) {
 
-        ClusterInfo clusterInfo = zkClusterServerMonitor.getClusterInfo();
+        ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
 
         if(clusterInfo == null || clusterInfo.getServerInfoList() == null || clusterInfo.getServerInfoList().size()<=0){
             logger.error("集群信息为空");
@@ -60,17 +60,22 @@ public class RouteServiceImpl implements RouteService {
     @Override
     public MqttServerVo findUserBroker(Long userId) {
         String brokerName = redisTemplate.opsForValue().get(USER_BROKER+userId);
-        MqttServerVo mqttServerVo = new MqttServerVo();
-        if(brokerName != null){
-            ClusterInfo clusterInfo = zkClusterServerMonitor.getClusterInfo();
-            if(clusterInfo == null || clusterInfo.getServerInfoList() == null || clusterInfo.getServerInfoList().size()<=0){
-                logger.error("集群信息为空");
-                return null;
-            }
-            ServerInfo serverInfo = clusterInfo.getBrokerMap().get(brokerName);
-            mqttServerVo.setHttpPort(serverInfo.getHttpPort());
-            mqttServerVo.setIp(serverInfo.getIp());
+        if(brokerName == null){
+            return null;
         }
+        ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
+        if(clusterInfo == null || clusterInfo.getServerInfoList() == null || clusterInfo.getServerInfoList().size()<=0){
+            logger.error("集群信息为空");
+            return null;
+        }
+        ServerInfo serverInfo = clusterInfo.getBrokerMap().get(brokerName);
+        if (serverInfo == null) {
+            return null;
+        }
+        MqttServerVo mqttServerVo = new MqttServerVo();
+        mqttServerVo.setBrokerName(brokerName);
+        mqttServerVo.setHttpPort(serverInfo.getHttpPort());
+        mqttServerVo.setIp(serverInfo.getIp());
         return mqttServerVo;
     }
 }

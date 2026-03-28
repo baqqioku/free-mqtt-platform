@@ -12,6 +12,7 @@ import com.free.mqtt.server.netty.MqttNettyChannel;
 import com.free.mqtt.server.session.SessionRepository;
 import com.free.mqtt.server.session.data.ClientSession;
 import com.free.mqtt.server.session.data.StoredMessage;
+import com.free.mqtt.server.session.data.WillMessage;
 import com.free.mqtt.server.subscriptions.ISubscriptionsDirectory;
 import com.free.mqtt.server.subscriptions.data.Subscription;
 import com.free.mqtt.server.subscriptions.data.Topic;
@@ -24,6 +25,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 public class ProtocolProcessor {
 
@@ -43,16 +51,33 @@ public class ProtocolProcessor {
 
     private Qos2Processor qos2Processor;
 
-    public ProtocolProcessor(SessionRepository sessionRepository, Interceptor interceptor,ISubscriptionsDirectory subscriptionsDirectory) {
+    private final int willDelaySeconds;
+    private final ScheduledExecutorService willExecutor;
+    private final Map<String, ScheduledFuture<?>> willTasks = new ConcurrentHashMap<>();
+
+    public ProtocolProcessor(SessionRepository sessionRepository, Interceptor interceptor, ISubscriptionsDirectory subscriptionsDirectory) {
+        this(sessionRepository, interceptor, subscriptionsDirectory, new DefaultAuthorizator(), 0);
+    }
+
+    public ProtocolProcessor(SessionRepository sessionRepository, Interceptor interceptor, ISubscriptionsDirectory subscriptionsDirectory, IAuthorizator authorizator, int willDelaySeconds) {
         this.sessionsRepository = sessionRepository;
         this.subscriptionsDirectory = subscriptionsDirectory;
 
         this.interceptor = interceptor;
-        this.authorizator = new DefaultAuthorizator();
+        this.authorizator = authorizator;
 
         qos0Processor = new Qos0Processor(interceptor,authorizator,subscriptionsDirectory, sessionsRepository);
         qos1Processor = new Qos1Processor(interceptor,authorizator,subscriptionsDirectory, sessionsRepository);
         qos2Processor = new Qos2Processor(interceptor,authorizator,subscriptionsDirectory, sessionsRepository);
+        this.willDelaySeconds = Math.max(0, willDelaySeconds);
+        this.willExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "will-delay");
+                t.setDaemon(true);
+                return t;
+            }
+        });
 
     }
 
@@ -70,19 +95,16 @@ public class ProtocolProcessor {
                 MqttConnAckMessage connAckMessage = MqttBrokerUtil.mqttConnAckMessage(MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD, false);
                 authChannel.getAuthChannel().writeAndFlush(connAckMessage);
             }else{
-                ClientSession clientSession = sessionsRepository.createClientSession(authChannel.getAuthChannel(), authChannel.getAuthChannel().getClientId());
+                SessionRepository.OpenResult open = sessionsRepository.openOrCreateSession(
+                        authChannel.getAuthChannel(),
+                        authChannel.getAuthChannel().getClientId(),
+                        authChannel.getAuthChannel().isCleanSession()
+                );
+                ClientSession clientSession = open.getSession();
+                clientSession.setCleanSession(authChannel.getAuthChannel().isCleanSession());
+                clientSession.setWillMessage(authChannel.getAuthChannel().getWillMessage());
 
-               /* boolean cleanSession = msg.variableHeader().isCleanSession();
-                clientSession.setCleanSession(cleanSession);
-                if (msg.variableHeader().isWillFlag()) {
-                    WillMessage will = new WillMessage();
-                    will.topic = msg.payload().willTopic();
-                    will.message = new String(msg.payload().willMessageInBytes());
-                    will.qos = msg.variableHeader().willQos();
-                    clientSession.setWillMessage(will);
-                }*/
-
-                MqttConnAckMessage connAckMessage = MqttBrokerUtil.mqttConnAckMessage(MqttConnectReturnCode.CONNECTION_ACCEPTED, false);
+                MqttConnAckMessage connAckMessage = MqttBrokerUtil.mqttConnAckMessage(MqttConnectReturnCode.CONNECTION_ACCEPTED, open.isSessionPresent());
                 authChannel.getAuthChannel().writeAndFlush(connAckMessage);
 
                 //自动定义topic
@@ -102,6 +124,15 @@ public class ProtocolProcessor {
                 }
                 //}
 
+                List<StoredMessage> offlineMessages = interceptor.popOfflineMessages(authChannel.getClientId(), 200);
+                if (offlineMessages != null && offlineMessages.size() > 0) {
+                    for (StoredMessage offline : offlineMessages) {
+                        if (offline != null) {
+                            clientSession.addSendMsg(offline);
+                        }
+                    }
+                }
+
                 //通道建立连接，需要推送消息
                 authChannel.getAuthChannel().fireEvent(new MqttFlushCacheEvent());
             }
@@ -112,6 +143,7 @@ public class ProtocolProcessor {
 
     public void sendMsg( String topic, byte[] payload, MqttQoS qos, Integer businessMsgId, long createTime, long ttl, String msgUUID) throws Exception{
         StoredMessage toStoreMsg = new StoredMessage(payload, qos, topic, "system", businessMsgId, ttl, msgUUID);
+        toStoreMsg.setCreateTime(createTime);
 
         Topic topicObj = new Topic(topic);
 
@@ -158,7 +190,7 @@ public class ProtocolProcessor {
             switch (messageType) {
                 case DISCONNECT:
                     logger.info("客户端主动断开连接,clientId:{}", channel.getClientId());
-                    this.processDisconnect(channel);
+                    this.processDisconnect(channel, true);
                     break;
 
                 case SUBSCRIBE:
@@ -262,6 +294,10 @@ public class ProtocolProcessor {
                     clientSession.removeHaveSendMsg(queueMsg.getMsgId());
 
                     interceptor.cancelPushMsgTimeTask(currentChannel.getClientId(), queueMsg.getMsgId());
+                    long userId = parseUserIdFromTopic(nextMsg.getTopic());
+                    if (userId > 0 && nextMsg.getMsgUUID() != null) {
+                        interceptor.ackMessage(userId, nextMsg.getMsgUUID());
+                    }
 
                     //通知拦截器，客户端已经收到消息了
                     interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId());
@@ -269,9 +305,14 @@ public class ProtocolProcessor {
                 }
             }
 
-            currentChannel.writeAndFlush( MqttBrokerUtil.mqttPublishMessage(queueMsg.getMsgId(), nextMsg) );
+            boolean dup = queueMsg.getPushCount() > 0;
+            currentChannel.writeAndFlush( MqttBrokerUtil.mqttPublishMessage(queueMsg.getMsgId(), nextMsg, dup) );
 
             nextMsg.setSendTime(System.currentTimeMillis());
+            long userId = parseUserIdFromTopic(nextMsg.getTopic());
+            if (userId > 0 && nextMsg.getMsgUUID() != null && nextMsg.getQos() != null && MqttQoS.AT_MOST_ONCE != nextMsg.getQos()) {
+                interceptor.markInflight(userId, nextMsg.getMsgUUID(), (System.currentTimeMillis() / 1000) + PerfUtil.getRetrySendDelay());
+            }
 
             if (PerfUtil.isSendSlow(nextMsg.getCreateTime())) {
                 long usedTime = System.currentTimeMillis() - nextMsg.getCreateTime();
@@ -321,6 +362,19 @@ public class ProtocolProcessor {
 
             //通道关联clientId
             channel.setClientId(clientId);
+            channel.setDisconnectReceived(false);
+            channel.setCleanSession(msg.variableHeader().isCleanSession());
+            cancelWill(clientId);
+            if (msg.variableHeader().isWillFlag()) {
+                WillMessage will = new WillMessage();
+                will.topic = msg.payload().willTopic();
+                will.message = new String(msg.payload().willMessageInBytes(), "utf-8");
+                will.qos = msg.variableHeader().willQos();
+                will.retain = msg.variableHeader().isWillRetain();
+                channel.setWillMessage(will);
+            } else {
+                channel.setWillMessage(null);
+            }
 
             //mqtt支持的版本有限
             int currentVersion = msg.variableHeader().version();
@@ -355,7 +409,30 @@ public class ProtocolProcessor {
 
     }
 
-    private void processDisconnect(MqttNettyChannel channel) {
+    private long parseUserIdFromTopic(String topic) {
+        if (topic == null) {
+            return -1;
+        }
+        if (!topic.startsWith(com.free.common.constant.MqttConstant.brokerToClientTopic)) {
+            return -1;
+        }
+        String tail = topic.substring(com.free.common.constant.MqttConstant.brokerToClientTopic.length());
+        if (tail.isEmpty()) {
+            return -1;
+        }
+        try {
+            return Long.parseLong(tail);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void processDisconnect(MqttNettyChannel channel, boolean graceful) {
+        channel.setDisconnectReceived(graceful);
+        if (graceful) {
+            cancelWill(channel.getClientId());
+            channel.setWillMessage(null);
+        }
         sessionsRepository.removeClinetSession(channel, channel.getClientId());
     }
 
@@ -416,12 +493,19 @@ public class ProtocolProcessor {
         int messageID = MqttBrokerUtil.messageId(msg);
 
         List<MqttTopicSubscription> topicFilters = new ArrayList<>();
+        boolean retainedQueued = false;
         for (MqttTopicSubscription req : msg.payload().topicSubscriptions()) {
             Topic topic = new Topic(req.topicName());
 
 
             if (topic.isValid()) {
                 logger.info("订阅clientId:{},有效topic:{}", clientSession.getClientId(), topic);
+
+                if (!authorizator.canRead(topic, clientSession.getUserName(), clientSession.getClientId())) {
+                    logger.error("MQTT client is not authorized to subscribe. CId={}, topic={}", clientSession.getClientId(), topic);
+                    topicFilters.add(new MqttTopicSubscription(req.topicName(), MqttQoS.FAILURE));
+                    continue;
+                }
 
                 topicFilters.add(new MqttTopicSubscription(req.topicName(), req.qualityOfService()));
 
@@ -430,6 +514,19 @@ public class ProtocolProcessor {
                 clientSession.subscribe(topic, newSubscription);
 
                 subscriptionsDirectory.addSubscription(newSubscription);
+
+                List<StoredMessage> retainedList = RetainedRepository.listMatching(req.topicName());
+                if (retainedList != null && !retainedList.isEmpty()) {
+                    for (StoredMessage retained : retainedList) {
+                        if (retained == null) {
+                            continue;
+                        }
+                        retained.setQos(MqttBrokerUtil.lowerQosToTheSubscriptionDesired(newSubscription, retained.getQos()));
+                        retained.setClientID("system");
+                        clientSession.addSendMsg(retained);
+                        retainedQueued = true;
+                    }
+                }
             } else {
 
                 logger.error("订阅clietnId:{},无效topic:{}", clientSession.getClientId(), topic);
@@ -441,6 +538,9 @@ public class ProtocolProcessor {
 
         MqttSubAckMessage mqttSubAckMessage = MqttBrokerUtil.mqttSubAckMessage(topicFilters, messageID);
         clientSession.writeAndFlush(mqttSubAckMessage);
+        if (retainedQueued) {
+            clientSession.fireEvent(new MqttFlushCacheEvent());
+        }
     }
 
     public void processUnsubscribe(ClientSession clientSession, MqttUnsubscribeMessage msg) throws Exception {
@@ -486,16 +586,87 @@ public class ProtocolProcessor {
      */
     public void processConnectionLost(MqttNettyChannel channel) {
         logger.info("通道断开连接,clientId:{}", channel.getClientId());
-
-        processDisconnect(channel);
+        if (!channel.isDisconnectReceived()) {
+            scheduleWillIfPresent(channel);
+        }
+        processDisconnect(channel, false);
     }
 
 
     public void processConnectionException(MqttNettyChannel channel) {
 
         logger.error("通道异常,clientId:{}", channel.getClientId());
+        if (!channel.isDisconnectReceived()) {
+            scheduleWillIfPresent(channel);
+        }
+        processDisconnect(channel, false);
+    }
 
-        processDisconnect(channel);
+    private void scheduleWillIfPresent(MqttNettyChannel channel) {
+        if (channel == null || channel.getClientId() == null) {
+            return;
+        }
+        final WillMessage will = channel.getWillMessage();
+        if (will == null || will.topic == null || will.message == null) {
+            return;
+        }
+        if (willDelaySeconds <= 0) {
+            publishWill(will);
+            return;
+        }
+        final String clientId = channel.getClientId();
+        ScheduledFuture<?> prev = willTasks.remove(clientId);
+        if (prev != null) {
+            prev.cancel(false);
+        }
+        ScheduledFuture<?> future = willExecutor.schedule(new Runnable() {
+            @Override
+            public void run() {
+                willTasks.remove(clientId);
+                publishWill(will);
+            }
+        }, willDelaySeconds, TimeUnit.SECONDS);
+        willTasks.put(clientId, future);
+    }
+
+    private void cancelWill(String clientId) {
+        if (clientId == null) {
+            return;
+        }
+        ScheduledFuture<?> future = willTasks.remove(clientId);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void publishWill(WillMessage will) {
+        try {
+            if (will == null || will.topic == null || will.message == null) {
+                return;
+            }
+            if (will.getExpiryTime() > 0 && System.currentTimeMillis() > will.getExpiryTime()) {
+                return;
+            }
+            MqttQoS qos = MqttQoS.valueOf(will.qos);
+            StoredMessage toStoreMsg = new StoredMessage(will.message.getBytes("utf-8"), qos, will.topic, "system", null, 0, java.util.UUID.randomUUID().toString().replaceAll("-", ""));
+            toStoreMsg.setRetained(will.retain);
+            Topic topicObj = new Topic(will.topic);
+            switch (qos) {
+                case AT_MOST_ONCE:
+                    qos0Processor.publish2Subscribers(null, toStoreMsg, topicObj);
+                    break;
+                case AT_LEAST_ONCE:
+                    qos1Processor.publish2Subscribers(null, toStoreMsg, topicObj);
+                    break;
+                case EXACTLY_ONCE:
+                    qos2Processor.publish2Subscribers(null, toStoreMsg, topicObj);
+                    break;
+                default:
+                    qos1Processor.publish2Subscribers(null, toStoreMsg, topicObj);
+                    break;
+            }
+        } catch (Exception ignored) {
+        }
     }
 
 

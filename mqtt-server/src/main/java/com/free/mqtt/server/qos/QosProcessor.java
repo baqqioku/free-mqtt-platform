@@ -11,6 +11,8 @@ import com.free.mqtt.server.subscriptions.ISubscriptionsDirectory;
 import com.free.mqtt.server.subscriptions.data.Subscription;
 import com.free.mqtt.server.subscriptions.data.Topic;
 import com.free.mqtt.server.utils.MsgUtil;
+import com.free.common.constant.MqttConstant;
+import io.netty.handler.codec.mqtt.MqttQoS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,9 +44,27 @@ public class QosProcessor {
             return;
         }
 
+        if (pubMsg != null && pubMsg.isRetained()) {
+            RetainedRepository.store(pubMsg);
+        }
+
+        long userId = parseUserIdFromTopic(topic.toString());
+        if (userId > 0 && pubMsg != null && pubMsg.getQos() != null && MqttQoS.AT_MOST_ONCE != pubMsg.getQos()) {
+            try {
+                interceptor.storeOfflineMessage(userId, pubMsg);
+            } catch (Exception ignored) {
+            }
+        }
+
         List<Subscription> topicMatchingSubscriptions = subscriptionsDirectory.matches(topic);
         if (null == topicMatchingSubscriptions || topicMatchingSubscriptions.size() <= 0) {
             logger.error("没有订阅者  topic:{}, msgUUID={}, msg={}", topic, pubMsg.getMsgUUID(), MsgUtil.toMsg(pubMsg.getPayload()));
+            if (userId > 0) {
+                try {
+                    interceptor.storeOfflineMessage(userId, pubMsg);
+                } catch (Exception ignored) {
+                }
+            }
             return;
         }
 
@@ -83,5 +103,23 @@ public class QosProcessor {
 
     public void setSessionsRepository(SessionRepository sessionsRepository) {
         this.sessionsRepository = sessionsRepository;
+    }
+
+    private long parseUserIdFromTopic(String topic) {
+        if (topic == null) {
+            return -1;
+        }
+        if (!topic.startsWith(MqttConstant.brokerToClientTopic)) {
+            return -1;
+        }
+        String tail = topic.substring(MqttConstant.brokerToClientTopic.length());
+        if (tail.isEmpty()) {
+            return -1;
+        }
+        try {
+            return Long.parseLong(tail);
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }

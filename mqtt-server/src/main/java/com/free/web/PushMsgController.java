@@ -28,8 +28,14 @@ public class PushMsgController {
 
         String targetTopic = MqttConstant.brokerToClientTopic+pushMsgAo.getUserId();
 
-        MqttPushRequest mqttPushRequest = new MqttPushRequest(targetTopic, pushMsgAo.getMessageId(),pushMsgAo.getTtl(),JSON.toJSONString(pushMsgAo), pushMsgAo.getMsgUUID());
+        String msgUUID = pushMsgAo.getMsgUUID();
+        if (msgUUID == null || msgUUID.trim().isEmpty()) {
+            msgUUID = java.util.UUID.randomUUID().toString().replaceAll("-", "");
+            pushMsgAo.setMsgUUID(msgUUID);
+        }
 
+        MqttPushRequest mqttPushRequest = new MqttPushRequest(targetTopic, pushMsgAo.getMessageId(),pushMsgAo.getTtl(),JSON.toJSONString(pushMsgAo), msgUUID);
+        mqttPushRequest.setRequestProcEndTime(pushMsgAo.getCreateTime());
         mqttServer.sendMsg(mqttPushRequest);
         return rtv;
     }

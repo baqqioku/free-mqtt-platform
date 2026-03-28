@@ -18,12 +18,19 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttEncoder;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.KeyManagerFactory;
+import java.io.File;
+import java.io.FileInputStream;
+import java.security.KeyStore;
 
 
 public class MqttNettyServer extends AbstractMqttServer {
@@ -70,8 +77,8 @@ public class MqttNettyServer extends AbstractMqttServer {
         //初始化mqtt集群
         clusterPlainTCPTransport();
 
-        //ssl
-        //initializeSSLTCPTransport();
+        // ssl
+        initializeSSLTCPTransport();
 
         //初始化tcp serversocket
         initializePlainTCPTransport();
@@ -98,7 +105,15 @@ public class MqttNettyServer extends AbstractMqttServer {
         initFactory(MqttConstant.DEFAULT_HOST,serverConfig.getTcpPort(),"TCP MQTT", channelChannelInitializer);
     }
 
-    /*private void initializeSSLTCPTransport() throws Exception{
+    private void initializeSSLTCPTransport() throws Exception{
+        if (!serverConfig.isSslEnabled()) {
+            return;
+        }
+        SslContext sslContext = buildSslContext();
+        if (sslContext == null) {
+            logger.warn("SSL enabled but no valid keystore found, skipping SSL listener.");
+            return;
+        }
         ChannelInitializer<SocketChannel> channelInitializer = new ChannelInitializer<SocketChannel>() {
 
             @Override
@@ -110,7 +125,7 @@ public class MqttNettyServer extends AbstractMqttServer {
 
                 pipeline.addFirst("idleStateHandler", new IdleStateHandler(MqttConstant.CHANNEL_TIMEOUT_SECONDS, 0, 0));
 
-                pipeline.addLast("ssl", createSslHandler(sslContext, false));
+                pipeline.addLast("ssl", createSslHandler(sslContext, serverConfig.isSslNeedClientAuth()));
 
                 pipeline.addLast("decoder", new MqttDecoder(MqttConstant.AGGREGATOR_MAX_SIZE));
                 pipeline.addLast("encoder", MqttEncoder.INSTANCE);
@@ -122,7 +137,39 @@ public class MqttNettyServer extends AbstractMqttServer {
 
 
         initFactory(MqttConstant.DEFAULT_HOST, serverConfig.getTcpSslTcpPort(), "SSL MQTT", channelInitializer);
-    }*/
+    }
+
+    private SslContext buildSslContext() throws Exception {
+        String keyStorePath = serverConfig.getSslKeystorePath();
+        String keyStorePassword = serverConfig.getSslKeystorePassword();
+        String keyStoreType = serverConfig.getSslKeystoreType();
+        if (keyStorePath == null || keyStorePath.trim().isEmpty()) {
+            logger.warn("Using self-signed certificate for SSL MQTT (no keystore configured).");
+            SelfSignedCertificate ssc = new SelfSignedCertificate();
+            SslContextBuilder builder = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey());
+            if (serverConfig.isSslNeedClientAuth()) {
+                builder.clientAuth(ClientAuth.REQUIRE);
+            }
+            return builder.build();
+        }
+        File ksFile = new File(keyStorePath);
+        if (!ksFile.exists()) {
+            logger.error("SSL keystore not found: {}", ksFile.getAbsolutePath());
+            return null;
+        }
+        char[] pass = keyStorePassword != null ? keyStorePassword.toCharArray() : new char[0];
+        KeyStore keyStore = KeyStore.getInstance(keyStoreType == null || keyStoreType.isEmpty() ? "JKS" : keyStoreType);
+        try (FileInputStream in = new FileInputStream(ksFile)) {
+            keyStore.load(in, pass);
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, pass);
+        SslContextBuilder builder = SslContextBuilder.forServer(kmf);
+        if (serverConfig.isSslNeedClientAuth()) {
+            builder.clientAuth(ClientAuth.REQUIRE);
+        }
+        return builder.build();
+    }
 
     private void initFactory(String host, int port, String protocol, ChannelInitializer channelInitializer) throws Exception {
         logger.info("Initializing server. Protocol={}", protocol);

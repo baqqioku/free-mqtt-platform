@@ -1,5 +1,6 @@
 package com.free.mqtt.server.qos;
 
+import com.free.common.constant.MqttConstant;
 import com.free.mqtt.server.auth.IAuthorizator;
 import com.free.mqtt.server.event.MqttFlushCacheEvent;
 import com.free.mqtt.server.interceptor.Interceptor;
@@ -96,6 +97,10 @@ public class Qos2Processor extends QosProcessor {
             }
 
             interceptor.cancelPushMsgTimeTask(clientSession.getClientId(), msgId);
+            long userId = parseUserIdFromTopic(storedMessage.getTopic());
+            if (userId > 0 && storedMessage.getMsgUUID() != null) {
+                interceptor.ackMessage(userId, storedMessage.getMsgUUID());
+            }
 
             //向系统监听器发送事件
             if(null != storedMessage.getBusinessMsgId()){
@@ -107,6 +112,24 @@ public class Qos2Processor extends QosProcessor {
             clientSession.fireEvent(new MqttFlushCacheEvent());
         }
 
+    }
+
+    private long parseUserIdFromTopic(String topic) {
+        if (topic == null) {
+            return -1;
+        }
+        if (!topic.startsWith(MqttConstant.brokerToClientTopic)) {
+            return -1;
+        }
+        String tail = topic.substring(MqttConstant.brokerToClientTopic.length());
+        if (tail.isEmpty()) {
+            return -1;
+        }
+        try {
+            return Long.parseLong(tail);
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
 

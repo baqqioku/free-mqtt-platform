@@ -26,24 +26,25 @@ public class ZkNodeListener implements IZkNodeListener {
     @Override
     public void notify(String rootPath, List<String> childs) {
 
-        //ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
-
+        ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
         List<ServerInfo> serverInfoList = new ArrayList<ServerInfo>();
-        for(String node : childs){
-            String data = zookeeperClient.getData(rootPath + "/" + node);
-            if(null == data){
-                continue;
+        clusterInfo.getBrokerMap().clear();
+        if (childs != null) {
+            for(String node : childs){
+                String data = zookeeperClient.getData(rootPath + "/" + node);
+                if(null == data){
+                    continue;
+                }
+
+                ServerInfo temp = JSON.parseObject(data, ServerInfo.class);
+                serverInfoList.add(temp);
+                if (temp != null && temp.getBrokerName() != null) {
+                    clusterInfo.getBrokerMap().put(temp.getBrokerName(), temp);
+                }
             }
-
-            ServerInfo temp = JSON.parseObject(data, ServerInfo.class);
-
-            serverInfoList.add(temp);
         }
-        //先清理缓存
-        clusterServerMonitor.remove();
-
-        //刷新集群的服务列表
-        clusterServerMonitor.getClusterInfo().setServerInfoList(serverInfoList);
+        clusterInfo.setServerInfoList(serverInfoList);
+        clusterInfo.setRefreshTime(System.currentTimeMillis());
     }
 
 
@@ -52,12 +53,17 @@ public class ZkNodeListener implements IZkNodeListener {
     public void notifyDataChange(String dataPath, Object serverData) {
         ServerInfo temp = JSON.parseObject((String) serverData, ServerInfo.class);
         ClusterInfo clusterInfo = clusterServerMonitor.clusterInfoMap.get(clusterServerMonitor.clusterName);
-        if (clusterInfo != null && clusterInfo.getServerInfoList() != null) {
-            clusterInfo.getServerInfoList()
-                    .removeIf(serverInfo -> Objects.equals(temp.getBrokerName(), serverInfo.getBrokerName()));
-            clusterInfo.getServerInfoList().add(temp);
-            clusterInfo.getBrokerMap().put(temp.getBrokerName(),temp);
+        if (clusterInfo == null) {
+            return;
         }
+        if (clusterInfo.getServerInfoList() == null) {
+            clusterInfo.setServerInfoList(new ArrayList<>());
+        }
+        clusterInfo.getServerInfoList()
+                .removeIf(serverInfo -> Objects.equals(temp.getBrokerName(), serverInfo.getBrokerName()));
+        clusterInfo.getServerInfoList().add(temp);
+        clusterInfo.getBrokerMap().put(temp.getBrokerName(),temp);
+        clusterInfo.setRefreshTime(System.currentTimeMillis());
     }
 
     @Override
@@ -65,12 +71,15 @@ public class ZkNodeListener implements IZkNodeListener {
 
         String brokerName = dataPath.substring(dataPath.lastIndexOf("/")+1);
         ClusterInfo clusterInfo = clusterServerMonitor.clusterInfoMap.get(clusterServerMonitor.clusterName);
-        if (clusterInfo != null && clusterInfo.getServerInfoList() != null) {
+        if (clusterInfo == null) {
+            return;
+        }
+        if (clusterInfo.getServerInfoList() != null) {
             clusterInfo.getServerInfoList()
                     .removeIf(serverInfo -> Objects.equals(brokerName, serverInfo.getBrokerName()));
-            clusterInfo.getBrokerMap().remove(brokerName);
-
         }
+        clusterInfo.getBrokerMap().remove(brokerName);
+        clusterInfo.setRefreshTime(System.currentTimeMillis());
 
     }
 }

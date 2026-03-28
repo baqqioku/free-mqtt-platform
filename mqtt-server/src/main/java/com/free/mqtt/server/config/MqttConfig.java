@@ -23,6 +23,8 @@ public class MqttConfig {
 
     private long recvSendAckSlowTime; // 500ms
 
+    private int reliableQueueMaxSize;
+
     public int getRetrySendCount() {
         return retrySendCount;
     }
@@ -93,5 +95,14 @@ public class MqttConfig {
     @Value("${mqtt.metric.config.recvSendAckSlowTime:500}")
     public void setRecvSendAckSlowTime(long recvSendAckSlowTime) {
         this.recvSendAckSlowTime = recvSendAckSlowTime;
+    }
+
+    public int getReliableQueueMaxSize() {
+        return reliableQueueMaxSize;
+    }
+
+    @Value("${mqtt.metric.config.reliableQueueMaxSize:5000}")
+    public void setReliableQueueMaxSize(int reliableQueueMaxSize) {
+        this.reliableQueueMaxSize = reliableQueueMaxSize;
     }
 }

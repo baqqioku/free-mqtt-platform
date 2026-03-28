@@ -21,6 +21,8 @@ import com.free.mqtt.server.netty.MqttNettyChannel;
 import com.free.mqtt.server.session.data.StoredMessage;
 import io.netty.handler.codec.mqtt.MqttQoS;
 
+import java.util.List;
+
 /**
  * 回调的所有接口不能够阻塞，否则会影响netty的io线程
  * @author Administrator
@@ -41,6 +43,14 @@ public interface Interceptor {
     boolean checkTtl(long createTime, long ttl);
     
     String autoSub(String clientId);
+
+    void storeOfflineMessage(long userId, StoredMessage msg);
+
+    List<StoredMessage> popOfflineMessages(String clientId, int maxCount);
+
+    void markInflight(long userId, String msgUUID, long sendAtSec);
+
+    void ackMessage(long userId, String msgUUID);
 
     void startPushMsgTimeTask(RetryPushTimerTask task);
 

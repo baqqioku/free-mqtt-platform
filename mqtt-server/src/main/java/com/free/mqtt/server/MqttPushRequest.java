@@ -53,7 +53,7 @@ public class MqttPushRequest {
         return jsonData;
     }
 
-    public Integer getBusinessMsgIdId() {
+    public Integer getBusinessMsgId() {
         return businessMsgId;
     }
 

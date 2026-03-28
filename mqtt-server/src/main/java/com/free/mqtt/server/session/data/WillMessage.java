@@ -7,6 +7,7 @@ public class WillMessage implements Serializable {
     public String topic;
     public String message;
     public int qos;
+    public boolean retain;
     private long expiryTime; //毫秒时间戳，到期不再发送
 
     public String getTopic() {
@@ -31,6 +32,14 @@ public class WillMessage implements Serializable {
 
     public void setQos(int qos) {
         this.qos = qos;
+    }
+
+    public boolean isRetain() {
+        return retain;
+    }
+
+    public void setRetain(boolean retain) {
+        this.retain = retain;
     }
 
     public long getExpiryTime() {

@@ -4,7 +4,7 @@
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="[%d{HH:mm:ss}] [%t] %-5level %logger{36} - %msg%n"/>
         </Console>
-        <File name="File" fileName="/data/logs/app.log">
+        <File name="File" fileName="${sys:user.dir}/logs/mqtt-server.log">
             <PatternLayout pattern="[%d{yyyy-MM-dd HH:mm:ss}] [%t] %-5level %logger{36} - %msg%n"/>
         </File>
     </Appenders>
