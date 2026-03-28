@@ -82,13 +82,15 @@ public abstract class ClusterServerMonitor {
 
                 clusterInfo = new ClusterInfo(clusterName);
                 List<ServerInfo> initData = getData();
-                clusterInfo.setServerInfoList(initData);
-
-                clusterInfoMap.put(clusterName, clusterInfo);
-
-                for (ServerInfo serverInfo : initData) {
-                    clusterInfo.getBrokerMap().put(serverInfo.getBrokerName(), serverInfo);
+                if (initData != null) {
+                    clusterInfo.setServerInfoList(initData);
+                    Map<String, ServerInfo> brokerMap = new java.util.concurrent.ConcurrentHashMap<>();
+                    for (ServerInfo serverInfo : initData) {
+                        brokerMap.put(serverInfo.getBrokerName(), serverInfo);
+                    }
+                    clusterInfo.setBrokerMap(brokerMap);
                 }
+                clusterInfoMap.put(clusterName, clusterInfo);
             }
         }
 
@@ -106,6 +108,22 @@ public abstract class ClusterServerMonitor {
 
     public void setClusterName(String clusterName) {
         this.clusterName = clusterName;
+    }
+
+    public void refresh() {
+        ClusterInfo clusterInfo = clusterInfoMap.get(clusterName);
+        if (clusterInfo != null) {
+            List<ServerInfo> serverInfoList = getData();
+            if (serverInfoList != null) {
+                clusterInfo.setServerInfoList(serverInfoList);
+                Map<String, ServerInfo> newBrokerMap = new ConcurrentHashMap<>();
+                for (ServerInfo serverInfo : serverInfoList) {
+                    newBrokerMap.put(serverInfo.getBrokerName(), serverInfo);
+                }
+                clusterInfo.setBrokerMap(newBrokerMap);
+                clusterInfo.setRefreshTime(System.currentTimeMillis());
+            }
+        }
     }
 
     private class ClusterMonitor implements Runnable {
@@ -160,10 +178,11 @@ public abstract class ClusterServerMonitor {
                         continue;
                     }
                     clusterInfo.setServerInfoList(serverInfoList);
-                    clusterInfo.getBrokerMap().clear();
+                    Map<String, ServerInfo> newBrokerMap = new ConcurrentHashMap<>();
                     for (ServerInfo serverInfo : serverInfoList) {
-                        clusterInfo.getBrokerMap().put(serverInfo.getBrokerName(), serverInfo);
+                        newBrokerMap.put(serverInfo.getBrokerName(), serverInfo);
                     }
+                    clusterInfo.setBrokerMap(newBrokerMap);
                     clusterInfo.setRefreshTime(System.currentTimeMillis());
                 }
             }

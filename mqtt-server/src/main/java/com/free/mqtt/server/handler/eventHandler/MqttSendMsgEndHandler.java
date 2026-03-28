@@ -8,7 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
-//消息发送成功之后的处理器
+//消息发送成功或者是响应成功之后的处理器
 public class MqttSendMsgEndHandler extends MqttBaseHandler<MqttSendMsgEndEvent> {
 
     public static Logger logger = LoggerFactory.getLogger(MqttSendMsgEndHandler.class);
@@ -25,11 +25,15 @@ public class MqttSendMsgEndHandler extends MqttBaseHandler<MqttSendMsgEndEvent> 
             return;
         }
 
-        asyncThreadPoolExcecutor.submit(new java.util.concurrent.FutureTask<Object>(new Runnable() {
+        asyncThreadPoolExcecutor.submit(new Runnable() {
             @Override
             public void run() {
-                // No-op placeholder for send-ack callback.
+                try {
+                    mqttServer.getMqttMsgListener().notifySendMsgOk(mqttSendMsgEndEvent);
+                } catch (Exception e) {
+                    logger.error("Notify send msg ok failed for clientId: {}", mqttSendMsgEndEvent.getClientId(), e);
+                }
             }
-        }, null));
+        });
     }
 }

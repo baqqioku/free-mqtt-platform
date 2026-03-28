@@ -186,8 +186,22 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
 
     @Override
     public void notifySendMsgOk(MqttSendMsgEndEvent pushMsgEndInfo) {
-        Long id = TopicUtil.getIdFromTopic(pushMsgEndInfo.getTopic());
-        //ackMessage(id,pushMsgEndInfo.getPushMessageId());
+        if (pushMsgEndInfo == null || pushMsgEndInfo.getTopic() == null || pushMsgEndInfo.getMsgUUID() == null) {
+            return;
+        }
+        Long userId = TopicUtil.getIdFromTopic(pushMsgEndInfo.getTopic());
+        if (userId != null && userId > 0) {
+            if (pushMsgEndInfo.isAck()) {
+                ackMessage(userId, pushMsgEndInfo.getMsgUUID());
+            } else {
+                long delay = 2;
+                try {
+                    delay = mqttServer.getMqttConfig().getRetrySendDelay();
+                } catch (Exception ignored) {
+                }
+                markInflight(userId, pushMsgEndInfo.getMsgUUID(), (System.currentTimeMillis() / 1000) + delay);
+            }
+        }
     }
 
     @Override
@@ -294,8 +308,7 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
         return rtv.isEmpty() ? null : rtv;
     }
 
-    @Override
-    public void markInflight(long userId, String msgUUID, long sendAtSec) {
+    private void markInflight(long userId, String msgUUID, long sendAtSec) {
         if (userId <= 0 || msgUUID == null || msgUUID.trim().isEmpty()) {
             return;
         }
@@ -312,8 +325,7 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
         });
     }
 
-    @Override
-    public void ackMessage(long userId, String msgUUID) {
+    private void ackMessage(long userId, String msgUUID) {
         if (userId <= 0 || msgUUID == null || msgUUID.trim().isEmpty()) {
             return;
         }

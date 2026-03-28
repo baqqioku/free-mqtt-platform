@@ -303,17 +303,13 @@ public class ProtocolProcessor {
 //			logger.info("推送的消息为 clientId:{},messageId:{}", nextMsg.getClientID(), queueMsg.getMsgId());
             //这个是业务推送
             if( null != nextMsg.getBusinessMsgId() ){
-                if( !interceptor.checkTtl(nextMsg.getCreateTime(), nextMsg.getTtl()) ){
+                if ( !interceptor.checkTtl(nextMsg.getCreateTime(), nextMsg.getTtl()) ){
                     clientSession.removeHaveSendMsg(queueMsg.getMsgId());
 
                     interceptor.cancelPushMsgTimeTask(currentChannel.getClientId(), queueMsg.getMsgId());
-                    long userId = parseUserIdFromTopic(nextMsg.getTopic());
-                    if (userId > 0 && nextMsg.getMsgUUID() != null) {
-                        interceptor.ackMessage(userId, nextMsg.getMsgUUID());
-                    }
 
                     //通知拦截器，客户端已经收到消息了
-                    interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId());
+                    interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId(), nextMsg.getMsgUUID(), true);
                     return;
                 }
             }
@@ -322,9 +318,8 @@ public class ProtocolProcessor {
             currentChannel.writeAndFlush( MqttBrokerUtil.mqttPublishMessage(queueMsg.getMsgId(), nextMsg, dup) );
 
             nextMsg.setSendTime(System.currentTimeMillis());
-            long userId = parseUserIdFromTopic(nextMsg.getTopic());
-            if (userId > 0 && nextMsg.getMsgUUID() != null && nextMsg.getQos() != null && MqttQoS.AT_MOST_ONCE != nextMsg.getQos()) {
-                interceptor.markInflight(userId, nextMsg.getMsgUUID(), (System.currentTimeMillis() / 1000) + PerfUtil.getRetrySendDelay());
+            if (nextMsg.getMsgUUID() != null && nextMsg.getQos() != null && MqttQoS.AT_MOST_ONCE != nextMsg.getQos()) {
+                interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId(), nextMsg.getMsgUUID(), false);
             }
 
             if (PerfUtil.isSendSlow(nextMsg.getCreateTime())) {
@@ -338,9 +333,7 @@ public class ProtocolProcessor {
                 clientSession.removeHaveSendMsg(queueMsg.getMsgId());
 
                 //通知拦截器，客户端已经收到消息了
-                if(null != nextMsg.getBusinessMsgId()){
-                    interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId());
-                }
+                interceptor.notifySendMsgOk(currentChannel.getClientId(), nextMsg.getTopic(), nextMsg.getQos(), nextMsg.getBusinessMsgId(), nextMsg.getMsgUUID(), true);
             } else {
                 //构建一个重发定时器
                 RetryPushTimerTask task = new RetryPushTimerTask(clientSession, queueMsg, PerfUtil.getRetrySendDelay());
@@ -441,6 +434,9 @@ public class ProtocolProcessor {
     }
 
     private void processDisconnect(MqttNettyChannel channel, boolean graceful) {
+        if (channel != null && channel.getClientId() != null) {
+            interceptor.notifyDisconnect(channel.remoteAddr(), channel.getClientId());
+        }
         channel.setDisconnectReceived(graceful);
         if (graceful) {
             cancelWill(channel.getClientId());

@@ -7,4 +7,6 @@ public interface RouteService {
     public MqttServerVo lbsServer(Long userId);
 
     public MqttServerVo findUserBroker(Long userId);
+
+    public void markBrokerDown(String brokerName);
 }

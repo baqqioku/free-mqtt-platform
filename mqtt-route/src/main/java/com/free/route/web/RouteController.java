@@ -23,6 +23,7 @@ import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -77,6 +78,7 @@ public class RouteController {
                 res.setDataBody(mqttServerVo);
             } else {
                 status = StatusEnum.FAIL;
+                res.setMessage("No available MQTT brokers");
             }
         }
 
@@ -85,11 +87,29 @@ public class RouteController {
         return res;
     }
 
+    @RequestMapping("/markBrokerDown")
+    public BaseResponse<String> markBrokerDown(@RequestParam("brokerName") String brokerName) {
+        routeService.markBrokerDown(brokerName);
+        return BaseResponse.create(null, StatusEnum.SUCCESS);
+    }
+
+    @RequestMapping("/getBroker")
+    public BaseResponse<MqttServerVo> getBroker(@RequestParam("userId") Long userId) {
+        MqttServerVo broker = routeService.findUserBroker(userId);
+        if (broker == null || broker.getIp() == null) {
+            broker = routeService.lbsServer(userId);
+            if (broker != null) {
+                accountService.saveRouteInfo(userId, broker.getBrokerName());
+            }
+        }
+        return BaseResponse.create(broker, StatusEnum.SUCCESS);
+    }
+
     //服务器推送消息
     @RequestMapping("/pushMsg")
     public <T> BaseResponse<T> pushMsg(@RequestBody PushMsgAo<T> pushMsgAo) {
 
-        BaseResponse rtv = BaseResponse.success();
+        BaseResponse rtv = BaseResponse.create(null, StatusEnum.SUCCESS);
         String msgUUID = pushMsgAo.getMsgUUID();
         if (msgUUID == null || msgUUID.trim().isEmpty()) {
             pushMsgAo.setMsgUUID(UUID.randomUUID().toString().replaceAll("-", ""));

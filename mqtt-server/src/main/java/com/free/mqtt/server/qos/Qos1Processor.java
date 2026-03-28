@@ -66,17 +66,9 @@ public class Qos1Processor extends QosProcessor {
                 return;
             }
             interceptor.cancelPushMsgTimeTask(clientSession.getClientId(), msgId);
-            long userId = parseUserIdFromTopic(inflightMsg.getTopic());
-            if (userId > 0 && inflightMsg.getMsgUUID() != null) {
-                interceptor.ackMessage(userId, inflightMsg.getMsgUUID());
-            }
-
-//			logger.info("推送的消息 响应clientId:{}, messageId:{}", inflightMsg.getClientID(), inflightMsg.getMessageId());
 
             //通知拦截器，客户端已经收到消息了
-            if(null != inflightMsg.getBusinessMsgId()){
-                interceptor.notifySendMsgOk(clientSession.getClientId(), inflightMsg.getTopic(), inflightMsg.getQos(), inflightMsg.getBusinessMsgId());
-            }
+            interceptor.notifySendMsgOk(clientSession.getClientId(), inflightMsg.getTopic(), inflightMsg.getQos(), inflightMsg.getBusinessMsgId(), inflightMsg.getMsgUUID(), true);
         }catch(Exception e){
 
         }finally{

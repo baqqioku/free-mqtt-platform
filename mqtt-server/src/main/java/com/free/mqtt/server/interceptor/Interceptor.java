@@ -32,7 +32,7 @@ public interface Interceptor {
 	
 	boolean filterMsg(String ip, StoredMessage pubMsg);//等同  msglistener  routeRequest
 	
-    void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId);
+    void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId, String msgUUID, boolean isAck);
     
     void notifyDisconnect(String ip, String clientId);
     
@@ -47,10 +47,6 @@ public interface Interceptor {
     void storeOfflineMessage(long userId, StoredMessage msg);
 
     List<StoredMessage> popOfflineMessages(String clientId, int maxCount);
-
-    void markInflight(long userId, String msgUUID, long sendAtSec);
-
-    void ackMessage(long userId, String msgUUID);
 
     void startPushMsgTimeTask(RetryPushTimerTask task);
 

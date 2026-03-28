@@ -45,8 +45,8 @@ public class MqttInterceptor implements Interceptor{
     }
 
     @Override
-    public void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId) {
-        MqttSendMsgEndEvent mqttSendMsgEndEvent = new MqttSendMsgEndEvent(clientId, topic, qos, pushMessageId);
+    public void notifySendMsgOk(String clientId, String topic, MqttQoS qos, Integer pushMessageId, String msgUUID, boolean isAck) {
+        MqttSendMsgEndEvent mqttSendMsgEndEvent = new MqttSendMsgEndEvent(clientId, topic, qos, pushMessageId, msgUUID, isAck);
 
         mqttServer.getMqttMsgProcessThread().submit(mqttSendMsgEndEvent);
     }
@@ -93,16 +93,6 @@ public class MqttInterceptor implements Interceptor{
     @Override
     public List<StoredMessage> popOfflineMessages(String clientId, int maxCount) {
         return mqttServer.getMqttMsgListener().popOfflineMessages(clientId, maxCount);
-    }
-
-    @Override
-    public void markInflight(long userId, String msgUUID, long sendAtSec) {
-        mqttServer.getMqttMsgListener().markInflight(userId, msgUUID, sendAtSec);
-    }
-
-    @Override
-    public void ackMessage(long userId, String msgUUID) {
-        mqttServer.getMqttMsgListener().ackMessage(userId, msgUUID);
     }
 
     @Override

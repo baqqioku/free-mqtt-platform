@@ -25,10 +25,10 @@ public class ZkNodeListener implements IZkNodeListener {
 
     @Override
     public void notify(String rootPath, List<String> childs) {
-
         ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
-        List<ServerInfo> serverInfoList = new ArrayList<ServerInfo>();
-        clusterInfo.getBrokerMap().clear();
+        List<ServerInfo> serverInfoList = new ArrayList<>();
+        Map<String, ServerInfo> newBrokerMap = new ConcurrentHashMap<>();
+        
         if (childs != null) {
             for(String node : childs){
                 String data = zookeeperClient.getData(rootPath + "/" + node);
@@ -37,49 +37,67 @@ public class ZkNodeListener implements IZkNodeListener {
                 }
 
                 ServerInfo temp = JSON.parseObject(data, ServerInfo.class);
-                serverInfoList.add(temp);
-                if (temp != null && temp.getBrokerName() != null) {
-                    clusterInfo.getBrokerMap().put(temp.getBrokerName(), temp);
+                if (temp != null) {
+                    serverInfoList.add(temp);
+                    if (temp.getBrokerName() != null) {
+                        newBrokerMap.put(temp.getBrokerName(), temp);
+                    }
                 }
             }
         }
         clusterInfo.setServerInfoList(serverInfoList);
+        clusterInfo.setBrokerMap(newBrokerMap);
         clusterInfo.setRefreshTime(System.currentTimeMillis());
     }
-
-
 
     @Override
     public void notifyDataChange(String dataPath, Object serverData) {
         ServerInfo temp = JSON.parseObject((String) serverData, ServerInfo.class);
-        ClusterInfo clusterInfo = clusterServerMonitor.clusterInfoMap.get(clusterServerMonitor.clusterName);
+        ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
         if (clusterInfo == null) {
             return;
         }
-        if (clusterInfo.getServerInfoList() == null) {
-            clusterInfo.setServerInfoList(new ArrayList<>());
-        }
-        clusterInfo.getServerInfoList()
-                .removeIf(serverInfo -> Objects.equals(temp.getBrokerName(), serverInfo.getBrokerName()));
-        clusterInfo.getServerInfoList().add(temp);
-        clusterInfo.getBrokerMap().put(temp.getBrokerName(),temp);
+
+        // Create new list to avoid ConcurrentModificationException
+        List<ServerInfo> oldList = clusterInfo.getServerInfoList();
+        List<ServerInfo> newList = (oldList == null) ? new ArrayList<>() : new ArrayList<>(oldList);
+        newList.removeIf(serverInfo -> Objects.equals(temp.getBrokerName(), serverInfo.getBrokerName()));
+        newList.add(temp);
+        
+        // Create new map to ensure atomicity
+        Map<String, ServerInfo> oldMap = clusterInfo.getBrokerMap();
+        Map<String, ServerInfo> newMap = (oldMap == null) ? new ConcurrentHashMap<>() : new ConcurrentHashMap<>(oldMap);
+        newMap.put(temp.getBrokerName(), temp);
+
+        clusterInfo.setServerInfoList(newList);
+        clusterInfo.setBrokerMap(newMap);
         clusterInfo.setRefreshTime(System.currentTimeMillis());
     }
 
     @Override
     public void notifyDataDeleted(String dataPath) {
-
-        String brokerName = dataPath.substring(dataPath.lastIndexOf("/")+1);
-        ClusterInfo clusterInfo = clusterServerMonitor.clusterInfoMap.get(clusterServerMonitor.clusterName);
+        String brokerName = dataPath.substring(dataPath.lastIndexOf("/") + 1);
+        ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
         if (clusterInfo == null) {
             return;
         }
-        if (clusterInfo.getServerInfoList() != null) {
-            clusterInfo.getServerInfoList()
-                    .removeIf(serverInfo -> Objects.equals(brokerName, serverInfo.getBrokerName()));
-        }
-        clusterInfo.getBrokerMap().remove(brokerName);
-        clusterInfo.setRefreshTime(System.currentTimeMillis());
 
+        // Create new list
+        List<ServerInfo> oldList = clusterInfo.getServerInfoList();
+        if (oldList != null) {
+            List<ServerInfo> newList = new ArrayList<>(oldList);
+            newList.removeIf(serverInfo -> Objects.equals(brokerName, serverInfo.getBrokerName()));
+            clusterInfo.setServerInfoList(newList);
+        }
+
+        // Create new map
+        Map<String, ServerInfo> oldMap = clusterInfo.getBrokerMap();
+        if (oldMap != null) {
+            Map<String, ServerInfo> newMap = new ConcurrentHashMap<>(oldMap);
+            newMap.remove(brokerName);
+            clusterInfo.setBrokerMap(newMap);
+        }
+        
+        clusterInfo.setRefreshTime(System.currentTimeMillis());
     }
 }

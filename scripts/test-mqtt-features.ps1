@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$RepoLocal = "D:\myEclipseWorkspaces\free-mqtt-platform\.m2",
     [string]$ZkAddress = "127.0.0.1:2181",
     [string]$RedisPassword = "123"
@@ -108,19 +108,19 @@ if (-not (Test-Path -Path $logsDir)) {
 }
 
 Write-Host "Packaging (skip tests) with local repo $RepoLocal ..."
-cmd /c "mvn -DskipTests -Dmaven.repo.local=`"$RepoLocal`" package"
+& mvn -DskipTests "-Dmaven.repo.local=$RepoLocal" package
 if ($LASTEXITCODE -ne 0) { throw "Maven package failed" }
 
 Write-Host "Installing mqtt-common into local repo (skip tests) ..."
-cmd /c "mvn -DskipTests -Dmaven.repo.local=`"$RepoLocal`" -pl mqtt-common -am install"
+& mvn -DskipTests "-Dmaven.repo.local=$RepoLocal" -pl mqtt-common -am install
 if ($LASTEXITCODE -ne 0) { throw "Maven install mqtt-common failed" }
 
 Write-Host "Copying runtime dependencies..."
-cmd /c "mvn -Dmaven.repo.local=`"$RepoLocal`" -pl mqtt-server -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib"
+& mvn "-Dmaven.repo.local=$RepoLocal" -pl mqtt-server -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib
 if ($LASTEXITCODE -ne 0) { throw "Copy dependencies (mqtt-server) failed" }
-cmd /c "mvn -Dmaven.repo.local=`"$RepoLocal`" -pl mqtt-route -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib"
+& mvn "-Dmaven.repo.local=$RepoLocal" -pl mqtt-route -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib
 if ($LASTEXITCODE -ne 0) { throw "Copy dependencies (mqtt-route) failed" }
-cmd /c "mvn -Dmaven.repo.local=`"$RepoLocal`" -pl mqtt-client -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib"
+& mvn "-Dmaven.repo.local=$RepoLocal" -pl mqtt-client -am dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target\lib
 if ($LASTEXITCODE -ne 0) { throw "Copy dependencies (mqtt-client) failed" }
 
 $serverCp = "mqtt-server\target\classes;mqtt-server\target\lib\*"
@@ -136,7 +136,11 @@ deny all pub /deny/#
 
 # Workaround for PATH/Path collision in Start-Process
 if ($env:PATH -and $env:Path) { Remove-Item Env:PATH }
-$javaPath = (Get-Command java).Source
+$javaPath = "java"
+try {
+    $found = Get-Command java -ErrorAction SilentlyContinue
+    if ($found) { $javaPath = $found.Source }
+} catch {}
 
 Write-Host "Starting broker (background)..."
 $broker = Start-Process -FilePath $javaPath -ArgumentList @(

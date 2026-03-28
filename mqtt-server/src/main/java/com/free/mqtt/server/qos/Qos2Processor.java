@@ -97,15 +97,9 @@ public class Qos2Processor extends QosProcessor {
             }
 
             interceptor.cancelPushMsgTimeTask(clientSession.getClientId(), msgId);
-            long userId = parseUserIdFromTopic(storedMessage.getTopic());
-            if (userId > 0 && storedMessage.getMsgUUID() != null) {
-                interceptor.ackMessage(userId, storedMessage.getMsgUUID());
-            }
 
-            //向系统监听器发送事件
-            if(null != storedMessage.getBusinessMsgId()){
-                interceptor.notifySendMsgOk(clientSession.getClientId(), storedMessage.getTopic(), storedMessage.getQos(), storedMessage.getBusinessMsgId());
-            }
+            //通知拦截器，客户端已经收到消息了
+            interceptor.notifySendMsgOk(clientSession.getClientId(), storedMessage.getTopic(), storedMessage.getQos(), storedMessage.getBusinessMsgId(), storedMessage.getMsgUUID(), true);
         }catch(Exception e){
 
         }finally{

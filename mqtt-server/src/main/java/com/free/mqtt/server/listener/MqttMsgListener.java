@@ -20,8 +20,4 @@ public interface MqttMsgListener {
 
     List<StoredMessage> popOfflineMessages(String clientId, int maxCount);
 
-    void markInflight(long userId, String msgUUID, long sendAtSec);
-
-    void ackMessage(long userId, String msgUUID);
-
 }

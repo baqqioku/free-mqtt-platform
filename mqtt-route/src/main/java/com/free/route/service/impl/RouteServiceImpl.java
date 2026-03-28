@@ -28,6 +28,10 @@ public class RouteServiceImpl implements RouteService {
     @Autowired
     private RedisTemplate<String,String> redisTemplate;
 
+    // 临时黑名单，防止故障报告后 ZK 还没来得及更新，导致再次分配到同一节点
+    private final Map<String, Long> brokerBlacklist = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long BLACKLIST_DURATION_MS = 30 * 1000; // 30秒
+
     @Override
     public MqttServerVo lbsServer(Long userId) {
 
@@ -38,7 +42,30 @@ public class RouteServiceImpl implements RouteService {
             return null;
         }
 
-        Map<String, ServerInfo> serverInfoMap =  clusterInfo.getBrokerMap();
+        Map<String, ServerInfo> serverInfoMap =  new java.util.HashMap<>(clusterInfo.getBrokerMap());
+        
+        // 过滤黑名单中的节点
+        long now = System.currentTimeMillis();
+        serverInfoMap.keySet().removeIf(name -> {
+            Long downTime = brokerBlacklist.get(name);
+            if (downTime != null && now - downTime < BLACKLIST_DURATION_MS) {
+                return true;
+            }
+            brokerBlacklist.remove(name);
+            return false;
+        });
+
+        if (serverInfoMap.isEmpty()) {
+            logger.warn("所有节点均在黑名单中，尝试刷新集群信息并重试一次");
+            clusterServerMonitor.refresh();
+            serverInfoMap.putAll(clusterServerMonitor.getClusterInfo().getBrokerMap());
+        }
+
+        if (serverInfoMap.isEmpty()) {
+            logger.error("无可用 Broker 节点");
+            return null;
+        }
+
         ConsistentHashRing<String> consistentHashRing = new ConsistentHashRing<String>(160,serverInfoMap.keySet());
         String brokerName = consistentHashRing.getNode(userId.toString());
 
@@ -77,5 +104,13 @@ public class RouteServiceImpl implements RouteService {
         mqttServerVo.setHttpPort(serverInfo.getHttpPort());
         mqttServerVo.setIp(serverInfo.getIp());
         return mqttServerVo;
+    }
+
+    @Override
+    public void markBrokerDown(String brokerName) {
+        if (brokerName == null) return;
+        logger.warn("Marking broker as down, adding to blacklist and refreshing cluster info: {}", brokerName);
+        brokerBlacklist.put(brokerName, System.currentTimeMillis());
+        clusterServerMonitor.refresh();
     }
 }

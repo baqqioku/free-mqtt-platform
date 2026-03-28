@@ -17,7 +17,9 @@ public class MqttSendMsgEndEvent extends MqttBaseEvent {
 
     private final String payloadText;
 
-    public MqttSendMsgEndEvent(String clientId, StoredMessage storedMessage) {
+    private final boolean isAck; // true for ACK (delete from queue), false for SENT (mark in-flight)
+
+    public MqttSendMsgEndEvent(String clientId, StoredMessage storedMessage, boolean isAck) {
         super(clientId);
         this.topic = storedMessage == null ? null : storedMessage.getTopic();
         this.pushMessageId = storedMessage == null ? null : storedMessage.getBusinessMsgId();
@@ -25,15 +27,17 @@ public class MqttSendMsgEndEvent extends MqttBaseEvent {
         this.msgUUID = storedMessage == null ? null : storedMessage.getMsgUUID();
         byte[] payload = storedMessage == null ? null : storedMessage.getPayload();
         this.payloadText = payload == null ? null : new String(payload, StandardCharsets.UTF_8);
+        this.isAck = isAck;
     }
 
-    public MqttSendMsgEndEvent(String clientId, String topic, MqttQoS qos, Integer pushMessageId) {
+    public MqttSendMsgEndEvent(String clientId, String topic, MqttQoS qos, Integer pushMessageId, String msgUUID, boolean isAck) {
         super(clientId);
         this.topic = topic;
         this.qos = qos;
         this.pushMessageId = pushMessageId;
-        this.msgUUID = null;
+        this.msgUUID = msgUUID;
         this.payloadText = null;
+        this.isAck = isAck;
     }
 
     public String getTopic() {
@@ -54,5 +58,9 @@ public class MqttSendMsgEndEvent extends MqttBaseEvent {
 
     public String getPayloadText() {
         return payloadText;
+    }
+
+    public boolean isAck() {
+        return isAck;
     }
 }

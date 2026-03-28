@@ -2,13 +2,12 @@ package com.free.mqtt.client.http;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.TypeReference;
+import com.free.common.constant.StatusEnum;
+import com.free.common.resp.BaseResponse;
 import com.free.mqtt.client.model.BrokerInfo;
 import com.free.mqtt.client.model.UserInfo;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+import okhttp3.*;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -73,6 +72,23 @@ public class RouteHttpClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", userId);
         post("/offerLine", body);
+    }
+
+    public void markBrokerDown(String brokerName) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("brokerName", brokerName);
+        post("/markBrokerDown", body);
+    }
+
+    public BrokerInfo getBroker(long userId) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("userId", userId);
+        JSONObject json = post("/getBroker", body);
+        BaseResponse<BrokerInfo> response = JSON.parseObject(json.toJSONString(), new TypeReference<BaseResponse<BrokerInfo>>(){});
+        if (response.getCode() != StatusEnum.SUCCESS.getCode()) {
+            throw new RuntimeException("Get broker failed: " + response.getMessage());
+        }
+        return response.getDataBody();
     }
 
     private JSONObject post(String path, Object body) throws Exception {

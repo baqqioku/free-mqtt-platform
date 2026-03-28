@@ -27,16 +27,33 @@ public class FreeMqttAppClient implements AutoCloseable {
     }
 
     public void connectMqtt() throws Exception {
-        if (broker == null || user == null) {
-            throw new IllegalStateException("missing user/broker, call register/login first");
+        int retries = 3;
+        Exception lastEx = null;
+        while (retries-- > 0) {
+            if (broker == null || user == null) {
+                throw new IllegalStateException("missing user/broker, call register/login first");
+            }
+            MqttClientConfig cfg = new MqttClientConfig();
+            cfg.setBrokerUrl("tcp://" + broker.getIp() + ":" + broker.getTcpPort());
+            cfg.setClientId(broker.getClientId());
+            cfg.setUserName(user.getUserName());
+            cfg.setPassword(user.getToken());
+            mqttClient = new PahoFreeMqttClient(cfg);
+            try {
+                mqttClient.connect();
+                return;
+            } catch (Exception e) {
+                lastEx = e;
+                String failedBroker = broker.getBrokerName();
+                mqttClient = null;
+                // Connection failed, mark broker as down and re-login to get a new one
+                try {
+                    routeHttpClient.markBrokerDown(failedBroker);
+                } catch (Exception ignored) {}
+                broker = routeHttpClient.getBroker(user.getUserId());
+            }
         }
-        MqttClientConfig cfg = new MqttClientConfig();
-        cfg.setBrokerUrl("tcp://" + broker.getIp() + ":" + broker.getTcpPort());
-        cfg.setClientId(broker.getClientId());
-        cfg.setUserName(user.getUserName());
-        cfg.setPassword(user.getToken());
-        mqttClient = new PahoFreeMqttClient(cfg);
-        mqttClient.connect();
+        throw lastEx != null ? lastEx : new RuntimeException("Failed to connect to any broker after retries");
     }
 
     public void subscribe(String topicFilter, int qos, MqttMessageListener listener) throws Exception {
