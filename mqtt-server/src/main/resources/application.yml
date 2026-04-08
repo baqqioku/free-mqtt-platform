@@ -1,0 +1,16 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: mqtt-server
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    database: 0
+
+mqtt:
+  server:
+    port: 1883
+    heartbeat-interval: 60
+    max-message-size: 1048576
