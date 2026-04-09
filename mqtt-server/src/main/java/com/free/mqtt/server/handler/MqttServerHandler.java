@@ -1,7 +1,9 @@
 package com.free.mqtt.server.handler;
 
 import com.free.mqtt.server.interceptor.MqttInterceptor;
+import com.free.mqtt.server.netty.MqttNettyChannel;
 import com.free.mqtt.server.qos.ProtocolProcessor;
+import com.free.mqtt.server.utils.MqttNettyUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.mqtt.MqttMessage;
@@ -10,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-@Component
+
 public class MqttServerHandler extends SimpleChannelInboundHandler<MqttMessage> {
     
     private static final Logger logger = LoggerFactory.getLogger(MqttServerHandler.class);
@@ -29,59 +31,8 @@ public class MqttServerHandler extends SimpleChannelInboundHandler<MqttMessage> 
         logger.debug("Received MQTT message: {}", msg);
         
         if (protocolProcessor != null) {
-            // Process message based on type
-            switch (msg.fixedHeader().messageType()) {
-                case CONNECT:
-                    handleConnect(ctx, msg);
-                    break;
-                case PUBLISH:
-                    handlePublish(ctx, msg);
-                    break;
-                case SUBSCRIBE:
-                    handleSubscribe(ctx, msg);
-                    break;
-                case UNSUBSCRIBE:
-                    handleUnsubscribe(ctx, msg);
-                    break;
-                case PINGREQ:
-                    handlePingReq(ctx);
-                    break;
-                case DISCONNECT:
-                    handleDisconnect(ctx, msg);
-                    break;
-                default:
-                    logger.debug("Unhandled message type: {}", msg.fixedHeader().messageType());
-            }
-        }
-    }
-    
-    private void handleConnect(ChannelHandlerContext ctx, MqttMessage msg) {
-        logger.info("Client connected");
-        if (mqttInterceptor != null) {
-            mqttInterceptor.onConnect(ctx.channel().id().asLongText());
-        }
-    }
-    
-    private void handlePublish(ChannelHandlerContext ctx, MqttMessage msg) {
-        logger.debug("Handling PUBLISH message");
-    }
-    
-    private void handleSubscribe(ChannelHandlerContext ctx, MqttMessage msg) {
-        logger.debug("Handling SUBSCRIBE message");
-    }
-    
-    private void handleUnsubscribe(ChannelHandlerContext ctx, MqttMessage msg) {
-        logger.debug("Handling UNSUBSCRIBE message");
-    }
-    
-    private void handlePingReq(ChannelHandlerContext ctx) {
-        logger.debug("Handling PINGREQ");
-    }
-    
-    private void handleDisconnect(ChannelHandlerContext ctx, MqttMessage msg) {
-        logger.info("Client disconnected");
-        if (mqttInterceptor != null) {
-            mqttInterceptor.onDisconnect(ctx.channel().id().asLongText());
+            MqttNettyChannel channel = MqttNettyUtils.channel(ctx.channel());
+            protocolProcessor.processMsg(channel, msg);
         }
     }
     
@@ -94,6 +45,10 @@ public class MqttServerHandler extends SimpleChannelInboundHandler<MqttMessage> 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         logger.info("Channel inactive: {}", ctx.channel().id());
+        if (protocolProcessor != null) {
+            MqttNettyChannel channel = MqttNettyUtils.channel(ctx.channel());
+            protocolProcessor.processConnectionLost(channel);
+        }
         super.channelInactive(ctx);
     }
     
