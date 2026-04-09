@@ -18,11 +18,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.data.redis.core.RedisCallback;
 
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,7 +26,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 import static com.free.common.constant.RedisKeyConstant.USER_STATUS;
 import static com.free.common.constant.RedisKeyConstant.MQTT_OFFLINE;
@@ -39,7 +34,7 @@ import static com.free.common.constant.RedisKeyConstant.MQTT_OFFLINE;
 /**
  * http 消息转mqtt 消息回调接口，异步处理
  */
-public class Mqtt2HttpMsgListener implements MqttMsgListener {
+public class Mqtt2HttpMsgListener extends Thread implements MqttMsgListener {
 
     private static final Logger logger = LoggerFactory.getLogger(Mqtt2HttpMsgListener.class);
 
@@ -147,6 +142,38 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
         UPSERT_AND_TRIM_SCRIPT_BYTES = s.getBytes(StandardCharsets.UTF_8);
     }
 
+    public void run() {
+
+        while(true){
+            Iterator<String> it = disConnectTimeMap.keySet().iterator();
+            while( it.hasNext() ){
+                String clientId = it.next();
+
+                if( checkIdle(clientId) ){
+                    cleanClientInfo(clientId);
+                }
+            }
+
+            try {
+                Thread.sleep(2*60*1000L);
+            } catch (InterruptedException e) {
+            }
+        }
+    }
+
+    private boolean checkIdle(String clientId){
+        Long upTime = disConnectTimeMap.get(clientId);
+        if(null == upTime){
+            return false;
+        }
+
+        if( System.currentTimeMillis() - upTime.longValue() > 5*60*1000L ){
+            return true;
+        }
+
+        return false;
+    }
+
     public Mqtt2HttpMsgListener(RedisTemplate<String, String> redisTemplate, MqttServer mqttServer) {
         this.redisTemplate = redisTemplate;
         this.mqttServer = mqttServer;
@@ -164,14 +191,25 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
                 storeLoop();
             }
         });
+        start();
     }
 
     @Override
     public boolean mqttChannelAuth(String clientId, String userName, String password) {
         boolean authSuccess = false;
         try {
-            String userId = clientId.split("_")[1];
+            // clientId 格式应为 xxx_{userId}，如 client_1
+            String[] parts = clientId.split("_");
+            if (parts.length < 2) {
+                logger.warn("mqtt授权失败，clientId格式不正确(缺少_)，应为xxx_{userId}: clientId={}", clientId);
+                return false;
+            }
+            String userId = parts[parts.length - 1];
             String userJson = redisTemplate.opsForValue().get(USER_STATUS + userId);
+            if (userJson == null) {
+                logger.warn("mqtt授权失败，用户状态不存在: userId={}", userId);
+                return false;
+            }
             JSONObject jsonObject = JSON.parseObject(userJson);
             if (userName.equals(jsonObject.getString("userName")) && password.equals(jsonObject.getString("token"))) {
                 authSuccess =  true;
@@ -207,6 +245,22 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
     @Override
     public void notifyDisconnect(String clientId) {
         disConnectTimeMap.put(clientId, System.currentTimeMillis());
+
+        // 异步更新 user:status:{userId} 的 online=false
+        final Long userId = clientIdToUserIdMap.get(clientId);
+        if (userId != null && userId > 0) {
+            storeExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        updateUserOnlineStatus(userId, false);
+                        logger.info("用户断连，状态更新为离线: userId={}, clientId={}", userId, clientId);
+                    } catch (Exception e) {
+                        logger.warn("更新用户离线状态失败: userId={}, err={}", userId, e.getMessage());
+                    }
+                }
+            });
+        }
     }
 
     @Override
@@ -349,6 +403,36 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
         synchronized (this) {
             disConnectTimeMap.remove(clientId);
             clientIdToUserIdMap.put(clientId, userId);
+            // 客户端连入，更新 user:status:{userId} 的 online=true
+            try {
+                updateUserOnlineStatus(userId, true);
+            } catch (Exception e) {
+                logger.warn("更新用户在线状态失败: userId={}, err={}", userId, e.getMessage());
+            }
+        }
+    }
+
+    /*多线程调用*/
+    private void cleanClientInfo(String clientId) {
+        synchronized (this) {
+            if( !checkIdle(clientId) ){
+                return;
+            }
+
+            logger.info("空闲移除  clientId:" + clientId);
+
+            Long userId = clientIdToUserIdMap.get(clientId);
+            disConnectTimeMap.remove(clientId);
+            clientIdToUserIdMap.remove(clientId);
+
+            // 5分钟空闲后也确保用户状态为离线
+            if (userId != null && userId > 0) {
+                try {
+                    updateUserOnlineStatus(userId, false);
+                } catch (Exception e) {
+                    logger.warn("更新用户离线状态失败: userId={}, err={}", userId, e.getMessage());
+                }
+            }
         }
     }
 
@@ -477,6 +561,21 @@ public class Mqtt2HttpMsgListener implements MqttMsgListener {
 
     private byte[] bytes(String s) {
         return s.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 更新 user:status:{userId} 中的 online 字段
+     * 读取Redis中的JSON，修改online值，再写回
+     */
+    private void updateUserOnlineStatus(Long userId, boolean online) {
+        String key = USER_STATUS + userId;
+        String userJson = redisTemplate.opsForValue().get(key);
+        if (userJson == null) {
+            return;
+        }
+        JSONObject jsonObject = JSON.parseObject(userJson);
+        jsonObject.put("online", online);
+        redisTemplate.opsForValue().set(key, jsonObject.toJSONString());
     }
 
 }

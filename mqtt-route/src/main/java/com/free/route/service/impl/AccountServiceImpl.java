@@ -1,6 +1,7 @@
 package com.free.route.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.free.common.utils.TokenUtil;
 import com.free.common.constant.StatusEnum;
 import com.free.route.service.AccountService;
@@ -68,12 +69,25 @@ public class AccountServiceImpl implements AccountService {
     @Override
     public void saveRouteInfo(Long userId, String brokerName) {
         redisTemplate.opsForValue().set(USER_BROKER+userId,brokerName);
+        // 同时更新 user:status:{userId} 的 online=true
+        updateUserOnlineStatus(userId, true);
     }
 
     public void offerLine(Long userId){
         redisTemplate.delete(USER_BROKER+userId);
-        //redisTemplate.delete(USER_STATUS+userId);
-        //redisTemplate.delete(USER_STATUS+userId);
+        // 同时更新 user:status:{userId} 的 online=false
+        updateUserOnlineStatus(userId, false);
+    }
+
+    private void updateUserOnlineStatus(Long userId, boolean online) {
+        String key = USER_STATUS + userId;
+        String userJson = redisTemplate.opsForValue().get(key);
+        if (userJson == null) {
+            return;
+        }
+        JSONObject jsonObject = JSON.parseObject(userJson);
+        jsonObject.put("online", online);
+        redisTemplate.opsForValue().set(key, jsonObject.toJSONString());
     }
 
 }

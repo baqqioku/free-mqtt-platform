@@ -57,7 +57,6 @@ public class MqttServer {
 
 
 
-
     private ProtocolProcessor protocolProcessor ;
     private ISubscriptionsDirectory subscriptionsDirectory;
     private SessionRepository sessionRepository ;
@@ -180,5 +179,9 @@ public class MqttServer {
 
     public void setMqttMsgProcessThread(MqttMsgProcessThread mqttMsgProcessThread) {
         this.mqttMsgProcessThread = mqttMsgProcessThread;
+    }
+
+    public MqttServerConfig getMqttServerConfig() {
+        return mqttServerConfig;
     }
 }

@@ -90,6 +90,14 @@ public class RouteServiceImpl implements RouteService {
         if(brokerName == null){
             return null;
         }
+
+        // 检查原broker是否在黑名单中（故障转移）
+        Long downTime = brokerBlacklist.get(brokerName);
+        if (downTime != null && System.currentTimeMillis() - downTime < BLACKLIST_DURATION_MS) {
+            logger.info("用户{}原broker[{}]在黑名单中，需重新分配", userId, brokerName);
+            return null;
+        }
+
         ClusterInfo clusterInfo = clusterServerMonitor.getClusterInfo();
         if(clusterInfo == null || clusterInfo.getServerInfoList() == null || clusterInfo.getServerInfoList().size()<=0){
             logger.error("集群信息为空");
@@ -103,6 +111,7 @@ public class RouteServiceImpl implements RouteService {
         mqttServerVo.setBrokerName(brokerName);
         mqttServerVo.setHttpPort(serverInfo.getHttpPort());
         mqttServerVo.setIp(serverInfo.getIp());
+        mqttServerVo.setTcpPort(serverInfo.getTcpPort());
         return mqttServerVo;
     }
 

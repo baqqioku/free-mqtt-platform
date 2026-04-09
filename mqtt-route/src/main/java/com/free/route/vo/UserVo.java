@@ -7,6 +7,7 @@ public class UserVo implements Serializable {
     private Long userId ;
     private String userName ;
     private String token;
+    private Boolean online = false;
 
 
     public UserVo(Long userId, String userName) {
@@ -42,5 +43,13 @@ public class UserVo implements Serializable {
 
     public void setToken(String token) {
         this.token = token;
+    }
+
+    public Boolean getOnline() {
+        return online;
+    }
+
+    public void setOnline(Boolean online) {
+        this.online = online;
     }
 }

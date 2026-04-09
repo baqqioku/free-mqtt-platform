@@ -48,6 +48,14 @@ out/
 .DS_Store
 Thumbs.db
 
+# Node
+node_modules/
+dist/
+
+# Build logs
+*.txt
+!pom.xml
+
 # Other
 .trae/
 .m2/
