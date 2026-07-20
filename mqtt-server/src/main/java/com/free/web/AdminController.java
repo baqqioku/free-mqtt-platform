@@ -90,20 +90,54 @@ public class AdminController {
         }
     }
 
+    /**
+     * 获取系统统计信息
+     * 包括：客户端数、在线状态、消息统计等
+     */
     @GetMapping("/stats")
     public BaseResponse<Map<String, Object>> getStats() {
         try {
             Map<String, ClientSession> sessions = mqttServer.getSessionRepository().getSessionsCache();
             Map<String, Object> stats = new HashMap<>();
+            
+            // 基础统计
             long onlineCount = sessions.values().stream()
                     .filter(this::isSessionConnected).count();
             stats.put("totalClients", sessions.size());
             stats.put("onlineClients", onlineCount);
+            
+            // 消息统计（当前版本暂未实现，返回默认值）
+            // 实际应该从消息队列或存储中计算
+            stats.put("messagesToday", 0);
+            stats.put("messageRate", 0.0);
+            
+            // 系统运行时间（毫秒）
+            // 这里使用启动时间作为参考，实际需要在 MqttServer 中记录启动时间
+            stats.put("uptime", calculateUptime());
+            
             stats.put("timestamp", System.currentTimeMillis());
+            stats.put("clusterEnabled", mqttServer != null);
+            
             return BaseResponse.success(stats);
         } catch (Exception e) {
             logger.error("Failed to get stats", e);
             return BaseResponse.fail("Failed to get stats: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 计算系统运行时间（小时）
+     */
+    private long calculateUptime() {
+        try {
+            // 获取 Java 进程运行时间（毫秒）
+            long uptimeMillis = java.lang.management.ManagementFactory
+                    .getRuntimeMXBean().getUptime();
+            // 转换为小时
+            return uptimeMillis / 3600000;
+        } catch (Exception e) {
+            logger.debug("Failed to calculate uptime", e);
+            return 0;
         }
     }
 }

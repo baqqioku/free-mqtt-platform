@@ -1,34 +1,36 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Row,
+  Space,
+  Statistic,
   Table,
   Tag,
-  Button,
-  Space,
-  Card,
-  Input,
-  Typography,
-  Row,
-  Col,
-  Alert,
-  Modal,
-  Descriptions,
-  message,
   Tooltip,
-  Popconfirm
+  Typography,
+  message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  SearchOutlined,
+  DisconnectOutlined,
+  ExperimentOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   UserOutlined,
   WifiOutlined,
-  DisconnectOutlined,
-  InfoCircleOutlined,
-  DeleteOutlined,
-  GlobalOutlined,
-  ExperimentOutlined
 } from '@ant-design/icons';
-import { routeServiceApi, ClientInfo } from '../api';
+import { ClientInfo, getErrorMessage, RegisteredUser, ResetTestDataResult, routeServiceApi } from '../api';
+import { formatBrokerAddress } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -38,86 +40,111 @@ interface ClientRecord extends ClientInfo {
 
 const Clients: React.FC = () => {
   const [clients, setClients] = useState<ClientRecord[]>([]);
-  const [filteredClients, setFilteredClients] = useState<ClientRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [resetting, setResetting] = useState(false);
+  const [registerVisible, setRegisterVisible] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [registeredUser, setRegisteredUser] = useState<RegisteredUser | null>(null);
+  const [registerForm] = Form.useForm<{ userName: string }>();
 
-  const fetchClients = useCallback(async () => {
+  const loadClients = async () => {
     setLoading(true);
     try {
-      const res = await routeServiceApi.getClients();
-      if (res?.dataBody) {
-        const data = (res.dataBody as ClientInfo[]).map(c => ({
-          ...c,
-          key: String(c.userId)
-        }));
-        setClients(data);
-        setFilteredClients(data);
-      }
+      const response = await routeServiceApi.getClients();
+      const data = (response ?? []).map((client) => ({
+        ...client,
+        key: String(client.userId),
+      }));
+      setClients(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch clients');
-      message.error('Failed to load clients');
+    } catch (loadError) {
+      setError(getErrorMessage(loadError, 'Failed to load clients'));
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    void loadClients();
+    const timer = window.setInterval(() => {
+      void loadClients();
+    }, 15000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
-
-  // Search filter
-  useEffect(() => {
-    if (searchText.trim() === '') {
-      setFilteredClients(clients);
-    } else {
-      const lower = searchText.toLowerCase();
-      setFilteredClients(
-        clients.filter(c =>
-          c.userName?.toLowerCase().includes(lower) ||
-          c.brokerName?.toLowerCase().includes(lower) ||
-          String(c.userId).includes(lower)
-        )
-      );
+  const filteredClients = clients.filter((client) => {
+    if (!searchText.trim()) {
+      return true;
     }
-  }, [searchText, clients]);
+
+    const keyword = searchText.toLowerCase();
+    return (
+      client.userName?.toLowerCase().includes(keyword) ||
+      client.brokerName?.toLowerCase().includes(keyword) ||
+      String(client.userId).includes(keyword)
+    );
+  });
+
+  const onlineCount = clients.filter((client) => client.online).length;
+  const offlineCount = clients.length - onlineCount;
+  const assignedCount = clients.filter((client) => client.brokerName).length;
 
   const showDetail = (record: ClientRecord) => {
     setSelectedClient(record);
-    setModalVisible(true);
+    setDetailVisible(true);
   };
 
-  const handleKick = async (userId: number, userName: string) => {
+  const handleDisconnect = async (record: ClientRecord) => {
     try {
-      await routeServiceApi.offerLine(userId);
-      message.success(`User "${userName}" disconnected`);
-      fetchClients();
-    } catch (err: any) {
-      message.error('Failed to disconnect user');
+      await routeServiceApi.disconnectUser(record.userId);
+      message.success(`User "${record.userName}" has been marked offline.`);
+      await loadClients();
+      if (selectedClient?.userId === record.userId) {
+        setDetailVisible(false);
+      }
+    } catch (disconnectError) {
+      message.error(getErrorMessage(disconnectError, 'Failed to disconnect client'));
     }
   };
 
   const handleResetTestData = async () => {
     setResetting(true);
     try {
-      const res = await routeServiceApi.resetTestData();
-      if (res?.dataBody) {
-        const d = res.dataBody as any;
-        message.success(`Reset done: ${d.createdUsers} users created, ${d.onlineUsers} online, ${d.deletedKeys} old keys deleted`);
+      const result = await routeServiceApi.resetTestData();
+      const summary = result as ResetTestDataResult | undefined;
+      if (summary) {
+        message.success(
+          `Reset complete: ${summary.createdUsers} users rebuilt, ${summary.onlineUsers} online, ${summary.deletedKeys} keys removed.`
+        );
       } else {
-        message.success('Test data reset successfully');
+        message.success('Test data reset successfully.');
       }
-      fetchClients();
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err.message || 'Failed to reset test data');
+      await loadClients();
+    } catch (resetError) {
+      message.error(getErrorMessage(resetError, 'Failed to reset test data'));
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleRegister = async (values: { userName: string }) => {
+    setRegistering(true);
+    try {
+      const user = await routeServiceApi.register({ userName: values.userName.trim() });
+      setRegisteredUser(user ?? null);
+      setRegisterVisible(false);
+      registerForm.resetFields();
+      message.success(`Client "${values.userName}" registered successfully.`);
+      await loadClients();
+    } catch (registerError) {
+      message.error(getErrorMessage(registerError, 'Failed to register client'));
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -146,7 +173,7 @@ const Clients: React.FC = () => {
       title: 'Status',
       dataIndex: 'online',
       key: 'online',
-      width: 110,
+      width: 120,
       render: (online: boolean) =>
         online ? (
           <Tag icon={<WifiOutlined />} color="success" style={{ borderRadius: 12 }}>
@@ -157,70 +184,42 @@ const Clients: React.FC = () => {
             Offline
           </Tag>
         ),
-      filters: [
-        { text: 'Online', value: true },
-        { text: 'Offline', value: false }
-      ],
-      onFilter: (value, record) => record.online === value,
     },
     {
       title: 'Assigned Broker',
       dataIndex: 'brokerName',
       key: 'brokerName',
-      width: 160,
-      render: (broker: string, record) =>
-        broker ? (
-          <Space>
-            <GlobalOutlined />
-            <Text code>{broker}</Text>
-          </Space>
-        ) : (
-          <Text type="secondary">-</Text>
-        ),
+      width: 180,
+      render: (brokerName: string) =>
+        brokerName ? <Tag color="blue">{brokerName}</Tag> : <Text type="secondary">Unassigned</Text>,
     },
     {
       title: 'Broker Address',
-      key: 'brokerAddr',
-      width: 200,
-      render: (_, record) =>
-        record.brokerIp ? (
-          <Text type="secondary">
-            {record.brokerIp}:{record.brokerTcpPort} (TCP) / :{record.brokerHttpPort} (HTTP)
-          </Text>
-        ) : (
-          <Text type="secondary">-</Text>
-        ),
+      key: 'brokerAddress',
+      render: (_, record) => (
+        <Text type="secondary">{formatBrokerAddress(record.brokerIp, record.brokerTcpPort, record.brokerHttpPort)}</Text>
+      ),
     },
     {
       title: 'Actions',
-      key: 'action',
-      width: 150,
+      key: 'actions',
+      width: 180,
       render: (_, record) => (
         <Space size="small">
-          <Tooltip title="View Details">
-            <Button
-              type="link"
-              size="small"
-              icon={<InfoCircleOutlined />}
-              onClick={() => showDetail(record)}
-            >
+          <Tooltip title="View details">
+            <Button type="link" size="small" icon={<InfoCircleOutlined />} onClick={() => showDetail(record)}>
               Detail
             </Button>
           </Tooltip>
           {record.online && (
             <Popconfirm
-              title={`Disconnect user "${record.userName}"?`}
-              description="This will remove the user's broker assignment and mark them offline."
-              onConfirm={() => handleKick(record.userId, record.userName)}
-              okText="Yes"
-              cancelText="No"
+              title={`Disconnect "${record.userName}"?`}
+              description="This clears the current broker assignment and marks the user offline."
+              onConfirm={() => void handleDisconnect(record)}
+              okText="Disconnect"
+              cancelText="Cancel"
             >
-              <Button
-                type="link"
-                size="small"
-                danger
-                icon={<DisconnectOutlined />}
-              >
+              <Button type="link" size="small" danger icon={<DisconnectOutlined />}>
                 Kick
               </Button>
             </Popconfirm>
@@ -230,14 +229,11 @@ const Clients: React.FC = () => {
     },
   ];
 
-  const onlineCount = clients.filter(c => c.online).length;
-  const offlineCount = clients.filter(c => !c.online).length;
-
   return (
     <div style={{ padding: '0 8px' }}>
       {error && (
         <Alert
-          message="Error loading clients"
+          message="Failed to load client data"
           description={error}
           type="error"
           showIcon
@@ -247,59 +243,73 @@ const Clients: React.FC = () => {
         />
       )}
 
-      {/* Header */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Registered Clients" value={clients.length} prefix={<UserOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Online" value={onlineCount} valueStyle={{ color: '#3f8600' }} prefix={<WifiOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Offline" value={offlineCount} valueStyle={{ color: '#fa8c16' }} prefix={<DisconnectOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Assigned Broker" value={assignedCount} valueStyle={{ color: '#1677ff' }} />
+          </Card>
+        </Col>
+      </Row>
+
       <Card>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Space size="large">
+        <Row justify="space-between" align="middle" gutter={[12, 12]}>
+          <Col flex="auto">
+            <Space wrap>
               <Text strong style={{ fontSize: 16 }}>
                 <UserOutlined style={{ marginRight: 8 }} />
-                MQTT Clients Management
+                MQTT Client Registry
               </Text>
-              <Tag color="blue">{filteredClients.length} Total</Tag>
-              <Tag color="green">{onlineCount} Online</Tag>
-              <Tag color="default">{offlineCount} Offline</Tag>
+              <Tag color="blue">{filteredClients.length} visible</Tag>
             </Space>
           </Col>
           <Col>
-            <Space>
+            <Space wrap>
               <Input
-                placeholder="Search by name/broker/userId..."
+                placeholder="Search by user, broker, or id"
                 prefix={<SearchOutlined />}
                 allowClear
                 value={searchText}
-                onChange={e => setSearchText(e.target.value)}
+                onChange={(event) => setSearchText(event.target.value)}
                 style={{ width: 260 }}
               />
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                onClick={fetchClients}
-                loading={loading}
-              >
-                Refresh
+              <Button icon={<PlusOutlined />} type="primary" onClick={() => setRegisterVisible(true)}>
+                Register Client
               </Button>
               <Popconfirm
-                title="Reset all test data?"
-                description="This will DELETE all existing users and create fresh test users (6 online, 4 offline)."
-                onConfirm={handleResetTestData}
-                okText="Yes, Reset"
+                title="Reset all demo data?"
+                description="This rebuilds the default 10-user test dataset and clears the current user registry."
+                onConfirm={() => void handleResetTestData()}
+                okText="Reset"
                 cancelText="Cancel"
                 okButtonProps={{ danger: true }}
               >
-                <Button
-                  icon={<ExperimentOutlined />}
-                  loading={resetting}
-                >
+                <Button icon={<ExperimentOutlined />} loading={resetting}>
                   Reset Test Data
                 </Button>
               </Popconfirm>
+              <Button icon={<ReloadOutlined />} onClick={() => void loadClients()} loading={loading}>
+                Refresh
+              </Button>
             </Space>
           </Col>
         </Row>
       </Card>
 
-      {/* Table */}
       <Card style={{ marginTop: 16 }}>
         <Table
           columns={columns}
@@ -310,49 +320,63 @@ const Clients: React.FC = () => {
             pageSize: 10,
             showTotal: (total) => `Total ${total} clients`,
             pageSizeOptions: ['10', '20', '50'],
-            showSizeChanger: true
+            showSizeChanger: true,
           }}
-          scroll={{ x: 900 }}
-          size="middle"
+          scroll={{ x: 980 }}
           locale={{
-            emptyText: (
-              <div style={{ padding: 40, textAlign: 'center' }}>
-                <WifiOutlined style={{ fontSize: 48, color: '#ccc', marginBottom: 16 }} />
-                <p>No registered clients found</p>
-                <Text type="secondary">Clients will appear here once they register through the Route service</Text>
-              </div>
-            )
+            emptyText: 'No registered clients found. Create one with "Register Client" or rebuild the test dataset.',
           }}
         />
       </Card>
 
-      {/* Detail Modal */}
       <Modal
-        title={
-          <>
-            <InfoCircleOutlined /> Client Details
-          </>
-        }
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        title="Register a Client"
+        open={registerVisible}
+        onCancel={() => setRegisterVisible(false)}
+        onOk={() => registerForm.submit()}
+        okText="Register"
+        confirmLoading={registering}
+        destroyOnClose
+      >
+        <Form form={registerForm} layout="vertical" onFinish={handleRegister}>
+          <Form.Item
+            label="User Name"
+            name="userName"
+            rules={[
+              { required: true, message: 'Please enter a client user name' },
+              { min: 3, message: 'Use at least 3 characters' },
+            ]}
+          >
+            <Input placeholder="sensor-01" maxLength={64} />
+          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            message="The route service only needs a user name for registration. It returns the generated token when the user is created for the first time."
+          />
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Client Details"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
         footer={[
-          <Button key="close" onClick={() => setModalVisible(false)}>
+          <Button key="close" onClick={() => setDetailVisible(false)}>
             Close
           </Button>,
-          selectedClient?.online && (
+          selectedClient?.online ? (
             <Button
-              key="kick"
+              key="disconnect"
               danger
-              onClick={() => {
-                handleKick(selectedClient!.userId, selectedClient!.userName);
-                setModalVisible(false);
-              }}
+              icon={<DisconnectOutlined />}
+              onClick={() => selectedClient && void handleDisconnect(selectedClient)}
             >
               Disconnect
             </Button>
-          )
+          ) : null,
         ]}
-        width={600}
+        width={640}
       >
         {selectedClient && (
           <Descriptions bordered column={1} size="small">
@@ -363,32 +387,51 @@ const Clients: React.FC = () => {
               <Text code>{selectedClient.userName}</Text>
             </Descriptions.Item>
             <Descriptions.Item label="Status">
-              {selectedClient.online ? (
-                <Tag color="success">Online</Tag>
-              ) : (
-                <Tag color="default">Offline</Tag>
-              )}
+              {selectedClient.online ? <Tag color="success">Online</Tag> : <Tag>Offline</Tag>}
             </Descriptions.Item>
             <Descriptions.Item label="Assigned Broker">
-              {selectedClient.brokerName ? (
-                <Text code>{selectedClient.brokerName}</Text>
-              ) : (
-                <Text type="secondary">Not assigned</Text>
+              {selectedClient.brokerName ? <Tag color="blue">{selectedClient.brokerName}</Tag> : 'Unassigned'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Broker Address">
+              {formatBrokerAddress(
+                selectedClient.brokerIp,
+                selectedClient.brokerTcpPort,
+                selectedClient.brokerHttpPort
               )}
             </Descriptions.Item>
-            {selectedClient.brokerIp && (
-              <>
-                <Descriptions.Item label="Broker IP">
-                  <Text code>{selectedClient.brokerIp}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="Broker TCP Port">
-                  {selectedClient.brokerTcpPort}
-                </Descriptions.Item>
-                <Descriptions.Item label="Broker HTTP Port">
-                  {selectedClient.brokerHttpPort}
-                </Descriptions.Item>
-              </>
-            )}
+          </Descriptions>
+        )}
+      </Modal>
+
+      <Modal
+        title="Registration Result"
+        open={Boolean(registeredUser)}
+        onCancel={() => setRegisteredUser(null)}
+        footer={[
+          <Button key="done" type="primary" onClick={() => setRegisteredUser(null)}>
+            Done
+          </Button>,
+        ]}
+      >
+        {registeredUser && (
+          <Descriptions bordered column={1} size="small">
+            <Descriptions.Item label="User ID">
+              <Text code>{registeredUser.userId}</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="User Name">
+              <Text code>{registeredUser.userName}</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Token">
+              {registeredUser.token ? (
+                <Text code copyable>
+                  {registeredUser.token}
+                </Text>
+              ) : (
+                <Text type="secondary">
+                  Existing user detected. The backend did not issue a new token in this response.
+                </Text>
+              )}
+            </Descriptions.Item>
           </Descriptions>
         )}
       </Modal>
@@ -397,3 +440,4 @@ const Clients: React.FC = () => {
 };
 
 export default Clients;
+

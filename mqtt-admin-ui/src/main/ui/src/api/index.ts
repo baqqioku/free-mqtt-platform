@@ -1,20 +1,11 @@
-import axios from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-});
-
-// Response interceptor for unified error handling
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    console.error('API Error:', error);
-    return Promise.reject(error);
-  }
-);
-
-// ==================== 数据类型 ====================
+export interface ApiResponse<T> {
+  code?: string;
+  message?: string;
+  reqNo?: string;
+  dataBody?: T;
+}
 
 export interface MessageHistory {
   msgUUID: string;
@@ -26,7 +17,6 @@ export interface MessageHistory {
   retained: boolean;
 }
 
-/** Route服务返回的客户端信息（从Redis读取） */
 export interface ClientInfo {
   userId: number;
   userName: string;
@@ -61,75 +51,161 @@ export interface SystemStats {
   clusterEnabled: boolean;
 }
 
-export interface ApiResponse<T> {
-  code?: string;
-  message?: string;
-  reqNo?: string;
-  dataBody?: T;
+export interface RegisteredUser {
+  userId: number;
+  userName: string;
+  token?: string;
+  online?: boolean;
 }
 
-// ==================== Admin API (MQTT Server 23240) ====================
-// 只用 /stats，其他数据从Route服务获取
-export const adminApi = {
-  // 获取系统统计
-  getStats: () => api.get<ApiResponse<SystemStats>>('/admin/stats'),
-  // 获取消息历史
-  getMessages: (page: number = 1, size: number = 20) =>
-    api.get<ApiResponse<MessageHistory[]>>('/messages', { params: { page, size } }),
-};
+export interface BrokerAssignment {
+  brokerName?: string;
+  ip?: string;
+  tcpPort?: number;
+  httpPort?: number;
+  clientId?: string;
+}
 
-// ==================== Route API (Route Service 8084) ====================
-// 客户端管理、集群管理、消息推送都走Route服务
-const routeApi = axios.create({
+export interface ResetTestDataResult {
+  deletedKeys: number;
+  createdUsers: number;
+  onlineUsers: number;
+  availableBrokers: string[];
+}
+
+export interface PushMessageBody {
+  topic: string;
+  payload: string;
+  qos: number;
+}
+
+export interface PushMessageRequest {
+  userId: number;
+  data: PushMessageBody;
+  msgUUID?: string;
+  messageId?: number;
+  ttl?: number;
+}
+
+const SUCCESS_CODE = '200';
+
+const adminClient = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+});
+
+const routeClient = axios.create({
   baseURL: '/route',
   timeout: 10000,
 });
 
-routeApi.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    console.error('Route API Error:', error);
-    return Promise.reject(error);
+function isApiResponse<T>(payload: unknown): payload is ApiResponse<T> {
+  if (!payload || typeof payload !== 'object') {
+    return false;
   }
-);
 
-export const routeServiceApi = {
-  // ---- 用户/客户端管理 ----
-  // 获取所有客户端列表（从Redis）
-  getClients: () => routeApi.get<ApiResponse<ClientInfo[]>>('/admin/clients'),
+  const value = payload as Record<string, unknown>;
+  return 'code' in value || 'message' in value || 'dataBody' in value;
+}
 
-  // 用户注册
-  register: (data: { userName: string; password: string }) =>
-    routeApi.post('/register', data),
+export function getErrorMessage(error: unknown, fallback = 'Request failed'): string {
+  if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data;
+    if (isApiResponse(responseData) && responseData.message) {
+      return responseData.message;
+    }
 
-  // 用户登录
-  login: (data: { userName: string; token: string }) =>
-    routeApi.post('/login', data),
+    if (typeof responseData === 'string' && responseData.trim()) {
+      return responseData;
+    }
 
-  // 用户下线
-  offerLine: (userId: number) =>
-    routeApi.post('/offerLine', { userId }),
+    return error.message || fallback;
+  }
 
-  // ---- Broker集群管理 ----
-  // 获取集群Broker列表
-  getCluster: () => routeApi.get<ApiResponse<ClusterInfo>>('/admin/cluster'),
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
 
-  // 获取指定用户的Broker
-  getBroker: (userId: number) =>
-    routeApi.get(`/getBroker?userId=${userId}`),
+  return fallback;
+}
 
-  // 标记Broker下线
-  markBrokerDown: (brokerName: string) =>
-    routeApi.get(`/markBrokerDown?brokerName=${brokerName}`),
+async function request<T>(
+  client: AxiosInstance,
+  config: AxiosRequestConfig,
+  fallbackMessage: string
+): Promise<T> {
+  try {
+    const response = await client.request<ApiResponse<T> | T>(config);
+    const payload = response.data;
 
-  // ---- 消息推送 ----
-  // 推送消息给指定用户（走LBS→找Broker→HTTP转发链路）
-  pushMessage: (data: { userId: number; data: any; msgUUID?: string; messageId?: number }) =>
-    routeApi.post('/pushMsg', data),
+    if (isApiResponse<T>(payload)) {
+      if (payload.code && payload.code !== SUCCESS_CODE) {
+        throw new Error(payload.message || fallbackMessage);
+      }
 
-  // ---- 测试数据管理 ----
-  // 清除所有用户数据并重新创建测试用户
-  resetTestData: () => routeApi.post<ApiResponse<any>>('/admin/resetTestData'),
+      return payload.dataBody as T;
+    }
+
+    return payload as T;
+  } catch (error) {
+    throw new Error(getErrorMessage(error, fallbackMessage));
+  }
+}
+
+export const adminApi = {
+  getStats: () =>
+    request<SystemStats>(adminClient, { url: '/admin/stats', method: 'GET' }, 'Failed to load system stats'),
+
+  getMessages: (page = 1, size = 20) =>
+    request<MessageHistory[]>(
+      adminClient,
+      { url: '/admin/messages', method: 'GET', params: { page, size } },
+      'Failed to load message history'
+    ),
 };
 
-export default api;
+export const routeServiceApi = {
+  getClients: () =>
+    request<ClientInfo[]>(routeClient, { url: '/admin/clients', method: 'GET' }, 'Failed to load clients'),
+
+  register: (data: { userName: string }) =>
+    request<RegisteredUser>(routeClient, { url: '/register', method: 'POST', data }, 'Failed to register client'),
+
+  login: (data: { userName: string; token: string }) =>
+    request<BrokerAssignment>(routeClient, { url: '/login', method: 'POST', data }, 'Failed to log in client'),
+
+  disconnectUser: (userId: number) =>
+    request<void>(
+      routeClient,
+      { url: '/offerLine', method: 'POST', data: { userId } },
+      'Failed to disconnect client'
+    ),
+
+  getCluster: () =>
+    request<ClusterInfo>(routeClient, { url: '/admin/cluster', method: 'GET' }, 'Failed to load cluster info'),
+
+  getBroker: (userId: number) =>
+    request<BrokerAssignment>(
+      routeClient,
+      { url: '/getBroker', method: 'GET', params: { userId } },
+      'Failed to load broker assignment'
+    ),
+
+  markBrokerDown: (brokerName: string) =>
+    request<void>(
+      routeClient,
+      { url: '/markBrokerDown', method: 'GET', params: { brokerName } },
+      'Failed to mark broker down'
+    ),
+
+  pushMessage: (data: PushMessageRequest) =>
+    request<void>(routeClient, { url: '/pushMsg', method: 'POST', data }, 'Failed to publish message'),
+
+  resetTestData: () =>
+    request<ResetTestDataResult>(
+      routeClient,
+      { url: '/admin/resetTestData', method: 'POST' },
+      'Failed to reset test data'
+    ),
+};
+

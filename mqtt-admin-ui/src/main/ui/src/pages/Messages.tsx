@@ -1,624 +1,445 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Table,
-  Card,
-  Button,
-  Space,
-  Modal,
-  Descriptions,
-  Tag,
-  Input,
-  Row,
-  Col,
-  Typography,
-  Select,
-  DatePicker,
   Alert,
-  Spin,
+  Button,
+  Card,
+  Col,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Row,
+  Select,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
   message,
-  Tooltip,
-  Empty
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { RangePickerProps } from 'antd/es/date-picker';
 import {
-  MessageOutlined,
-  SearchOutlined,
-  ReloadOutlined,
-  InfoCircleOutlined,
-  DeleteOutlined,
-  EyeOutlined,
-  SendOutlined,
   ClearOutlined,
-  FilterOutlined
+  MessageOutlined,
+  ReloadOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
-import { adminApi, routeServiceApi, MessageHistory } from '../api';
+import { adminApi, ClientInfo, getErrorMessage, MessageHistory, routeServiceApi } from '../api';
+import { formatDateTime } from '../utils/format';
 
-const { Text } = Typography;
-const { Option } = Select;
-const { RangePicker } = DatePicker;
+const { Text, Title } = Typography;
 
-interface MessageRecord extends MessageHistory {
+interface PublishFormValues {
+  userId: number;
+  topic: string;
+  payload: string;
+  qos: number;
+  ttl?: number;
+  messageId?: number;
+}
+
+interface PublishLogEntry {
   key: string;
+  time: number;
+  userId: number;
+  userName: string;
+  topic: string;
+  payload: string;
+  qos: number;
+  ttl?: number;
+  messageId?: number;
+  delivery: 'dispatched' | 'queued';
+  brokerName?: string;
 }
 
 const Messages: React.FC = () => {
-  const [messages, setMessages] = useState<MessageRecord[]>([]);
-  const [filteredMessages, setFilteredMessages] = useState<MessageRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedMessage, setSelectedMessage] = useState<MessageRecord | null>(null);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  
-  // Filters
-  const [searchText, setSearchText] = useState('');
-  const [topicFilter, setTopicFilter] = useState<string>('');
-  const [qosFilter, setQosFilter] = useState<number | undefined>();
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
-
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-
-  const [sending, setSending] = useState(false);
-  const [pushModalVisible, setPushModalVisible] = useState(false);
-  const [pushTopic, setPushTopic] = useState('');
-  const [pushPayload, setPushPayload] = useState('');
-  const [pushQos, setPushQos] = useState<number>(0);
-
-  const fetchMessages = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await adminApi.getMessages(currentPage, pageSize);
-      if (res?.dataBody) {
-        const data = (res.dataBody as MessageHistory[]).map(m => ({
-          ...m,
-          key: m.msgUUID || Math.random().toString()
-        }));
-        setMessages(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch messages:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, pageSize]);
-
-  useEffect(() => {
-    fetchMessages();
-  }, [fetchMessages]);
-
-  // Apply filters
-  useEffect(() => {
-    let result = [...messages];
-
-    if (searchText.trim()) {
-      const lower = searchText.toLowerCase();
-      result = result.filter(m =>
-        m.topic?.toLowerCase().includes(lower) ||
-        m.payload?.toLowerCase().includes(lower) ||
-        m.publisherId?.toLowerCase().includes(lower)
-      );
-    }
-
-    if (topicFilter) {
-      result = result.filter(m => m.topic === topicFilter);
-    }
-
-    if (qosFilter !== undefined) {
-      result = result.filter(m => m.qos === qosFilter);
-    }
-
-    if (dateRange[0]) {
-      result = result.filter(m =>
-        new Date(m.timestamp) >= dateRange[0].toDate()
-      );
-    }
-
-    if (dateRange[1]) {
-      result = result.filter(m =>
-        new Date(m.timestamp) <= dateRange[1].toDate()
-      );
-    }
-
-    setFilteredMessages(result);
-  }, [messages, searchText, topicFilter, qosFilter, dateRange]);
-
-  // Get unique topics for filter dropdown
-  const uniqueTopics = [...new Set(messages.map(m => m.topic).filter(Boolean))];
-
-  const showDetail = (record: MessageRecord) => {
-    setSelectedMessage(record);
-    setIsModalVisible(true);
-  };
-
-  const handleDelete = (msgUUID: string) => {
-    Modal.confirm({
-      title: 'Delete Message',
-      content: 'Are you sure you want to delete this message?',
-      okText: 'Yes',
-      cancelText: 'No',
-      onOk: () => {
-        message.success('Message deleted');
-        fetchMessages();
-      }
-    });
-  };
-
-  const handleClearAll = () => {
-    Modal.confirm({
-      title: 'Clear All Messages',
-      content: 'Are you sure you want to clear all message history?',
-      okType: 'danger',
-      okText: 'Yes, Clear All',
-      cancelText: 'Cancel',
-      onOk: () => {
-        message.info('Message clearing is not implemented in demo mode');
-      }
-    });
-  };
-
-  // pushMsg需要的字段
-  const [pushUserId, setPushUserId] = useState<number | undefined>(undefined);
-  const [userOptions, setUserOptions] = useState<{userId: number; userName: string; online: boolean; brokerName: string}[]>([]);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [serverMessages, setServerMessages] = useState<MessageHistory[]>([]);
+  const [publishLog, setPublishLog] = useState<PublishLogEntry[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [form] = Form.useForm<PublishFormValues>();
 
-  // 打开发送弹窗时加载用户列表
-  const openPushModal = async () => {
-    setPushModalVisible(true);
+  const selectedUserId = Form.useWatch('userId', form);
+  const selectedUser = clients.find((client) => client.userId === selectedUserId);
+
+  const loadClients = async () => {
     setLoadingUsers(true);
     try {
-      const res = await routeServiceApi.getClients();
-      if (res?.dataBody) {
-        const clients = res.dataBody as any[];
-        setUserOptions(clients.map((c: any) => ({
-          userId: c.userId,
-          userName: c.userName,
-          online: c.online,
-          brokerName: c.brokerName || ''
-        })));
-      }
-    } catch (err) {
-      console.error('Failed to load users:', err);
+      const data = await routeServiceApi.getClients();
+      setClients(data ?? []);
+    } catch (loadError) {
+      message.error(getErrorMessage(loadError, 'Failed to load users'));
     } finally {
       setLoadingUsers(false);
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!pushUserId) {
-      message.error('Please select a user');
-      return;
+  const loadServerHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const data = await adminApi.getMessages(1, 50);
+      setServerMessages(data ?? []);
+      setHistoryError(null);
+    } catch (loadError) {
+      setHistoryError(getErrorMessage(loadError, 'Failed to load server message history'));
+    } finally {
+      setLoadingHistory(false);
     }
-    if (!pushTopic.trim()) {
-      message.error('Please enter a topic');
-      return;
-    }
-    const selectedUser = userOptions.find(u => u.userId === pushUserId);
-    if (selectedUser && !selectedUser.online) {
-      message.warning('This user is offline. Message will be queued for offline delivery.');
-    }
+  };
+
+  useEffect(() => {
+    void loadClients();
+    void loadServerHistory();
+  }, []);
+
+  const handlePublish = async (values: PublishFormValues) => {
     setSending(true);
     try {
-      const res = await routeServiceApi.pushMessage({
-        userId: pushUserId,
-        data: { topic: pushTopic.trim(), payload: pushPayload, qos: pushQos }
+      await routeServiceApi.pushMessage({
+        userId: values.userId,
+        messageId: values.messageId,
+        ttl: values.ttl,
+        data: {
+          topic: values.topic.trim(),
+          payload: values.payload,
+          qos: values.qos,
+        },
       });
-      message.success(`Message pushed to user [${selectedUser?.userName || pushUserId}]`);
-      setPushModalVisible(false);
-      setPushUserId(undefined);
-      setPushTopic('');
-      setPushPayload('');
-      setPushQos(0);
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err.message || 'Failed to push message');
+
+      const delivery = selectedUser?.online ? 'dispatched' : 'queued';
+      const nextEntry: PublishLogEntry = {
+        key: `${Date.now()}-${values.userId}`,
+        time: Date.now(),
+        userId: values.userId,
+        userName: selectedUser?.userName || `User ${values.userId}`,
+        topic: values.topic.trim(),
+        payload: values.payload,
+        qos: values.qos,
+        ttl: values.ttl,
+        messageId: values.messageId,
+        delivery,
+        brokerName: selectedUser?.brokerName,
+      };
+
+      setPublishLog((current) => [nextEntry, ...current].slice(0, 20));
+      message.success(
+        delivery === 'dispatched'
+          ? `Message sent to ${nextEntry.userName}.`
+          : `User is offline. Message was accepted for queued delivery.`
+      );
+
+      form.setFieldsValue({
+        ...values,
+        topic: '',
+        payload: '',
+        messageId: undefined,
+      });
+    } catch (publishError) {
+      message.error(getErrorMessage(publishError, 'Failed to publish message'));
     } finally {
       setSending(false);
     }
   };
 
-  const columns: ColumnsType<MessageRecord> = [
+  const publishColumns: ColumnsType<PublishLogEntry> = [
     {
-      title: 'Message ID',
-      dataIndex: 'msgUUID',
-      key: 'msgUUID',
-      width: 220,
-      ellipsis: true,
-      render: (text: string) => (
-        <Text code copyable style={{ fontSize: 12 }}>
-          {text}
-        </Text>
-      )
+      title: 'Time',
+      dataIndex: 'time',
+      key: 'time',
+      width: 180,
+      render: (value: number) => formatDateTime(value),
+    },
+    {
+      title: 'User',
+      key: 'user',
+      width: 180,
+      render: (_, record) => (
+        <Space direction="vertical" size={0}>
+          <Text code>{record.userName}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            ID {record.userId}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Delivery',
+      dataIndex: 'delivery',
+      key: 'delivery',
+      width: 130,
+      render: (delivery: PublishLogEntry['delivery']) =>
+        delivery === 'dispatched' ? <Tag color="success">Dispatched</Tag> : <Tag color="orange">Queued</Tag>,
     },
     {
       title: 'Topic',
       dataIndex: 'topic',
       key: 'topic',
-      width: 180,
-      render: (topic: string) => (
-        <Tag color="geekblue" style={{ maxWidth: 170 }}>
-          <MessageOutlined style={{ marginRight: 4 }} />
-          {topic}
-        </Tag>
-      ),
-      sorter: (a, b) => (a.topic || '').localeCompare(b.topic || ''),
+      render: (value: string) => <Text code>{value}</Text>,
     },
     {
       title: 'QoS',
       dataIndex: 'qos',
       key: 'qos',
-      width: 70,
-      align: 'center',
-      filters: [
-        { text: 'QoS 0', value: 0 },
-        { text: 'QoS 1', value: 1 },
-        { text: 'QoS 2', value: 2 }
-      ],
-      onFilter: (value, record) => record.qos === value,
-      render: (qos: number) => (
-        <Tag color={qos === 0 ? 'default' : qos === 1 ? 'blue' : 'purple'}>
-          QoS {qos}
-        </Tag>
-      ),
+      width: 90,
+      render: (value: number) => <Tag>QoS {value}</Tag>,
+    },
+    {
+      title: 'Payload',
+      dataIndex: 'payload',
+      key: 'payload',
+      ellipsis: true,
+      render: (value: string) => <Text type="secondary">{value || '(empty)'}</Text>,
+    },
+  ];
+
+  const serverHistoryColumns: ColumnsType<MessageHistory> = [
+    {
+      title: 'Message ID',
+      dataIndex: 'msgUUID',
+      key: 'msgUUID',
+      width: 220,
+      render: (value: string) => <Text code>{value || '-'}</Text>,
+    },
+    {
+      title: 'Topic',
+      dataIndex: 'topic',
+      key: 'topic',
+      render: (value: string) => <Tag color="geekblue">{value || '-'}</Tag>,
+    },
+    {
+      title: 'QoS',
+      dataIndex: 'qos',
+      key: 'qos',
+      width: 90,
+      render: (value: number) => <Tag>QoS {value ?? 0}</Tag>,
     },
     {
       title: 'Publisher',
       dataIndex: 'publisherId',
       key: 'publisherId',
-      width: 140,
-      ellipsis: true,
-      render: (id: string) => id || <Text type="secondary">System</Text>,
+      width: 180,
+      render: (value: string) => <Text>{value || 'system'}</Text>,
     },
     {
       title: 'Timestamp',
       dataIndex: 'timestamp',
       key: 'timestamp',
-      width: 175,
-      sorter: (a, b) => a.timestamp - b.timestamp,
-      defaultSortOrder: 'descend',
-      render: (timestamp: number) => timestamp > 0
-        ? new Date(timestamp).toLocaleString()
-        : '-'
+      width: 180,
+      render: (value: number) => formatDateTime(value),
     },
     {
       title: 'Retained',
       dataIndex: 'retained',
       key: 'retained',
-      width: 90,
-      align: 'center',
-      filters: [
-        { text: 'Yes', value: true },
-        { text: 'No', value: false }
-      ],
-      onFilter: (value, record) => record.retained === value,
-      render: (retained: boolean) => (
-        <Tag color={retained ? 'orange' : 'default'}>
-          {retained ? 'Retain' : 'No'}
-        </Tag>
-      ),
-    },
-    {
-      title: 'Payload Preview',
-      dataIndex: 'payload',
-      key: 'payload',
-      width: 200,
-      ellipsis: true,
-      render: (payload: string) => (
-        payload ? (
-          <Text type="secondary" style={{ maxWidth: 190 }}>
-            {payload.length > 50 ? `${payload.substring(0, 50)}...` : payload}
-          </Text>
-        ) : <Text type="secondary" italic>No payload</Text>
-      )
-    },
-    {
-      title: 'Actions',
-      key: 'action',
-      width: 160,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="View Details">
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => showDetail(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Delete">
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record.msgUUID)}
-            />
-          </Tooltip>
-        </Space>
-      ),
+      width: 110,
+      render: (value: boolean) => <Tag color={value ? 'orange' : 'default'}>{value ? 'Yes' : 'No'}</Tag>,
     },
   ];
 
   return (
     <div style={{ padding: '0 8px' }}>
-      {/* Header */}
-      <Card>
-        <Row justify="space-between" align="middle" wrap={true}>
-          <Col>
-            <Space size="middle" wrap>
-              <Text strong style={{ fontSize: 16 }}>
-                <MessageOutlined style={{ marginRight: 8 }} />
-                Message History
-              </Text>
-              <Tag color="blue">{filteredMessages.length} Messages</Tag>
-            </Space>
-          </Col>
-          <Col>
-            <Space wrap>
-              <Button
-                icon={<SendOutlined />}
-                type="primary"
-                onClick={openPushModal}
-              >
-                Send Message
-              </Button>
-              <Button
-                icon={<ClearOutlined />}
-                danger
-                onClick={handleClearAll}
-                disabled={messages.length === 0}
-              >
-                Clear All
-              </Button>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={fetchMessages}
-                loading={loading}
-              >
-                Refresh
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* Filters */}
-      <Card size="small" style={{ marginTop: 16 }} title={<><FilterOutlined /> Filters</>}>
-        <Row gutter={[16, 12]}>
-          <Col xs={24} sm={12} md={6}>
-            <Input
-              placeholder="Search topic/payload..."
-              prefix={<SearchOutlined />}
-              allowClear
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-            />
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Select
-              placeholder="Filter by Topic"
-              allowClear
-              style={{ width: '100%' }}
-              onChange={setTopicFilter}
-              value={topicFilter || undefined}
-            >
-              {uniqueTopics.map(topic => (
-                <Option key={topic} value={topic}>{topic}</Option>
-              ))}
-            </Select>
-          </Col>
-          <Col xs={24} sm={12} md={4}>
-            <Select
-              placeholder="QoS Level"
-              allowClear
-              style={{ width: '100%' }}
-              onChange={(v) => setQosFilter(v)}
-              value={qosFilter}
-            >
-              <Option value={0}>QoS 0</Option>
-              <Option value={1}>QoS 1</Option>
-              <Option value={2}>QoS 2</Option>
-            </Select>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <RangePicker
-              style={{ width: '100%' }}
-              onChange={(dates) => setDateRange(dates as [any, any])}
-              showTime
-            />
-          </Col>
-          <Col xs={24} sm={12} md={2}>
-            <Button
-              block
-              onClick={() => {
-                setSearchText('');
-                setTopicFilter('');
-                setQosFilter(undefined);
-                setDateRange([null, null]);
-              }}
-            >
-              Reset
+      <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
+        <Col>
+          <Space direction="vertical" size={2}>
+            <Title level={3} style={{ margin: 0 }}>
+              <MessageOutlined style={{ marginRight: 12 }} />
+              Message Operations
+            </Title>
+            <Text type="secondary">
+              Publish MQTT business messages and inspect the message-history integration state.
+            </Text>
+          </Space>
+        </Col>
+        <Col>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => void loadClients()} loading={loadingUsers}>
+              Refresh Users
             </Button>
-          </Col>
-        </Row>
-      </Card>
+            <Button icon={<ReloadOutlined />} onClick={() => void loadServerHistory()} loading={loadingHistory}>
+              Refresh History
+            </Button>
+          </Space>
+        </Col>
+      </Row>
 
-      {/* Table */}
-      <Card style={{ marginTop: 16 }}>
-        <Table
-          columns={columns}
-          dataSource={filteredMessages}
-          rowKey="key"
-          loading={loading}
-          scroll={{ x: 1300 }}
-          size="middle"
-          pagination={{
-            current: currentPage,
-            pageSize: pageSize,
-            total: filteredMessages.length,
-            showTotal: (total) => `Total ${total} messages`,
-            pageSizeOptions: ['10', '20', '50'],
-            showSizeChanger: true,
-            onChange: (page, size) => {
-              setCurrentPage(page);
-              setPageSize(size);
-            }
-          }}
-          locale={{
-            emptyText: (
+      {historyError && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="error"
+          showIcon
+          message="Server history could not be loaded"
+          description={historyError}
+        />
+      )}
+
+      {!historyError && serverMessages.length === 0 && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message="Server history is currently empty"
+          description="The broker admin endpoint exists, but the current backend implementation returns an empty list. The frontend keeps the table visible so it will start working as soon as history storage is added."
+        />
+      )}
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={14}>
+          <Card title="Publish a Message" extra={<Tag color="blue">{clients.length} target users</Tag>}>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={{ qos: 0, ttl: 300 }}
+              onFinish={(values) => void handlePublish(values)}
+            >
+              <Row gutter={16}>
+                <Col xs={24} md={12}>
+                  <Form.Item
+                    label="Target User"
+                    name="userId"
+                    rules={[{ required: true, message: 'Please select a target user' }]}
+                  >
+                    <Select
+                      showSearch
+                      loading={loadingUsers}
+                      placeholder="Select a registered user"
+                      optionFilterProp="label"
+                      filterOption={(input, option) =>
+                        String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={clients.map((client) => ({
+                        value: client.userId,
+                        label: `${client.userName} (ID:${client.userId}) ${client.online ? 'online' : 'offline'}`,
+                      }))}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item
+                    label="Topic"
+                    name="topic"
+                    rules={[{ required: true, message: 'Please enter a topic' }]}
+                  >
+                    <Input placeholder="device/telemetry" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={16}>
+                <Col xs={24} md={8}>
+                  <Form.Item label="QoS" name="qos">
+                    <Select
+                      options={[
+                        { value: 0, label: 'QoS 0 - At most once' },
+                        { value: 1, label: 'QoS 1 - At least once' },
+                        { value: 2, label: 'QoS 2 - Exactly once' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item label="TTL (seconds)" name="ttl">
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item label="Business Message ID" name="messageId">
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item label="Payload" name="payload">
+                <Input.TextArea rows={6} placeholder='{"temperature": 22.5}' />
+              </Form.Item>
+
+              <Space>
+                <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={sending}>
+                  Publish
+                </Button>
+                <Button icon={<ClearOutlined />} onClick={() => form.resetFields()}>
+                  Reset Form
+                </Button>
+              </Space>
+            </Form>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={10}>
+          <Card title="Target Snapshot">
+            {selectedUser ? (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space>
+                  <Text strong code>
+                    {selectedUser.userName}
+                  </Text>
+                  {selectedUser.online ? <Tag color="success">Online</Tag> : <Tag color="orange">Offline</Tag>}
+                </Space>
+                <Text type="secondary">
+                  Broker: {selectedUser.brokerName ? selectedUser.brokerName : 'No active assignment'}
+                </Text>
+                <Alert
+                  type={selectedUser.online ? 'success' : 'warning'}
+                  showIcon
+                  message={
+                    selectedUser.online
+                      ? 'The route service should forward this message directly to the current broker.'
+                      : 'The route service accepts the request and relies on offline delivery storage.'
+                  }
+                />
+              </Space>
+            ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <span>
-                    No messages found
-                    <br />
-                    <Text type="secondary">Send a message or wait for MQTT messages</Text>
-                  </span>
-                }
+                description="Pick a target user to preview delivery behavior."
               />
-            )
-          }}
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Card>
+        <Tabs
+          items={[
+            {
+              key: 'publish-log',
+              label: `Session Publish Log (${publishLog.length})`,
+              children: (
+                <Table
+                  columns={publishColumns}
+                  dataSource={publishLog}
+                  rowKey="key"
+                  pagination={{ pageSize: 5 }}
+                  locale={{
+                    emptyText: 'No messages have been published from this browser session yet.',
+                  }}
+                />
+              ),
+            },
+            {
+              key: 'server-history',
+              label: `Server History (${serverMessages.length})`,
+              children: (
+                <Table
+                  columns={serverHistoryColumns}
+                  dataSource={serverMessages}
+                  rowKey={(record) => record.msgUUID || `${record.topic}-${record.timestamp}`}
+                  loading={loadingHistory}
+                  pagination={{ pageSize: 5 }}
+                  locale={{
+                    emptyText: 'The broker admin API did not return any message history records.',
+                  }}
+                />
+              ),
+            },
+          ]}
         />
       </Card>
-
-      {/* Detail Modal */}
-      <Modal
-        title={
-          <>
-            <InfoCircleOutlined /> Message Details
-          </>
-        }
-        open={isModalVisible}
-        onCancel={() => setIsModalVisible(false)}
-        footer={[
-          <Button key="close" onClick={() => setIsModalVisible(false)}>
-            Close
-          </Button>
-        ]}
-        width={700}
-      >
-        {selectedMessage && (
-          <Descriptions bordered column={1} size="small">
-            <Descriptions.Item label="Message ID">
-              <Text code copyable>{selectedMessage.msgUUID}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Topic">
-              <Tag color="geekblue">{selectedMessage.topic}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="QoS Level">
-              <Tag>{`QoS ${selectedMessage.qos}`}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Publisher ID">
-              {selectedMessage.publisherId || 'System'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Timestamp">
-              {new Date(selectedMessage.timestamp).toLocaleString()}
-            </Descriptions.Item>
-            <Descriptions.Item label="Retained Message">
-              <Tag color={selectedMessage.retained ? 'orange' : 'default'}>
-                {selectedMessage.retained ? 'Yes - Retained' : 'No'}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Payload">
-              <pre style={{
-                background: '#f5f5f5',
-                padding: 12,
-                borderRadius: 4,
-                maxHeight: 300,
-                overflow: 'auto',
-                fontSize: 13,
-                whiteSpace: 'pre-wrap'
-              }}>
-                {selectedMessage.payload || '(empty)'}
-              </pre>
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
-
-      {/* Send Message Modal */}
-      <Modal
-        title={
-          <>
-            <SendOutlined /> Publish New Message
-          </>
-        }
-        open={pushModalVisible}
-        onCancel={() => setPushModalVisible(false)}
-        onOk={handleSendMessage}
-        okText="Publish"
-        cancelText="Cancel"
-        confirmLoading={sending}
-        width={600}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>Select User *</Text>
-            <Select
-              showSearch
-              placeholder={loadingUsers ? "Loading users..." : "Select a user to push message"}
-              style={{ width: '100%', marginTop: 4 }}
-              value={pushUserId}
-              onChange={(val) => setPushUserId(val)}
-              loading={loadingUsers}
-              optionFilterProp="label"
-              filterOption={(input, option) =>
-                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={userOptions.map(u => ({
-                value: u.userId,
-                label: `${u.userName} (ID: ${u.userId}) ${u.online ? '● Online' : '○ Offline'} ${u.brokerName ? '→ ' + u.brokerName : ''}`,
-              }))}
-            />
-            {pushUserId && (() => {
-              const sel = userOptions.find(u => u.userId === pushUserId);
-              if (!sel) return null;
-              return sel.online ? (
-                <Alert type="success" message={`User "${sel.userName}" is online on ${sel.brokerName}`} style={{ marginTop: 4 }} showIcon />
-              ) : (
-                <Alert type="warning" message={`User "${sel.userName}" is offline. Message will be queued.`} style={{ marginTop: 4 }} showIcon />
-              );
-            })()}
-          </div>
-          <div>
-            <Text strong>Topic *</Text>
-            <Input
-              placeholder="Enter MQTT topic (e.g., sensor/temperature)"
-              value={pushTopic}
-              onChange={e => setPushTopic(e.target.value)}
-              style={{ marginTop: 4 }}
-              prefix="# / "
-            />
-          </div>
-          
-          <div>
-            <Text strong>QoS Level</Text>
-            <Select
-              style={{ width: '100%', marginTop: 4 }}
-              value={pushQos}
-              onChange={setPushQos}
-            >
-              <Option value={0}>QoS 0 - At most once</Option>
-              <Option value={1}>QoS 1 - At least once</Option>
-              <Option value={2}>QoS 2 - Exactly once</Option>
-            </Select>
-          </div>
-          
-          <div>
-            <Text strong>Payload</Text>
-            <Input.TextArea
-              rows={5}
-              placeholder="Enter message payload (JSON, text, etc.)"
-              value={pushPayload}
-              onChange={e => setPushPayload(e.target.value)}
-              style={{ marginTop: 4 }}
-            />
-          </div>
-        </Space>
-      </Modal>
     </div>
   );
 };
 
 export default Messages;
+

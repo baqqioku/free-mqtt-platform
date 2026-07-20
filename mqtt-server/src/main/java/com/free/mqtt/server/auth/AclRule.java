@@ -114,4 +114,15 @@ public class AclRule {
         }
         return out;
     }
+    
+    @Override
+    public String toString() {
+        return String.format("AclRule{%s %s %s %s %s}",
+            allow ? "allow" : "deny",
+            subjectType,
+            subject,
+            action,
+            topicFilter
+        );
+    }
 }

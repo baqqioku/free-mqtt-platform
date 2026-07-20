@@ -1,67 +1,95 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Alert,
+  Badge,
+  Button,
   Card,
+  Col,
+  Descriptions,
+  Empty,
+  message,
+  Popconfirm,
+  Row,
+  Space,
+  Statistic,
   Table,
   Tag,
-  Button,
-  Space,
-  Row,
-  Col,
   Typography,
-  Alert,
-  Tooltip,
-  Badge,
-  Descriptions,
-  message,
-  Popconfirm
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CloudServerOutlined,
-  ReloadOutlined,
-  ApiOutlined,
-  GlobalOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  StopOutlined
+  CloudServerOutlined,
+  GlobalOutlined,
+  ReloadOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
-import { routeServiceApi, ClusterInfo, BrokerNode } from '../api';
+import { BrokerNode, ClientInfo, ClusterInfo, getErrorMessage, routeServiceApi } from '../api';
+import { formatDateTime, formatRelativeAge } from '../utils/format';
 
 const { Text } = Typography;
 
+interface BrokerUsage {
+  total: number;
+  online: number;
+}
+
 const Brokers: React.FC = () => {
   const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCluster = useCallback(async () => {
+  const loadCluster = async () => {
     setLoading(true);
     try {
-      const res = await routeServiceApi.getCluster();
-      if (res?.dataBody) {
-        setClusterInfo(res.dataBody as ClusterInfo);
-        setError(null);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to get cluster info');
+      const [cluster, clientList] = await Promise.all([
+        routeServiceApi.getCluster(),
+        routeServiceApi.getClients(),
+      ]);
+      setClusterInfo(cluster ?? null);
+      setClients(clientList ?? []);
+      setError(null);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError, 'Failed to load cluster info'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchCluster();
-    const timer = setInterval(fetchCluster, 15000);
-    return () => clearInterval(timer);
-  }, [fetchCluster]);
+    void loadCluster();
+    const timer = window.setInterval(() => {
+      void loadCluster();
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const brokerUsage = clients.reduce<Record<string, BrokerUsage>>((acc, client) => {
+    if (!client.brokerName) {
+      return acc;
+    }
+
+    if (!acc[client.brokerName]) {
+      acc[client.brokerName] = { total: 0, online: 0 };
+    }
+
+    acc[client.brokerName].total += 1;
+    if (client.online) {
+      acc[client.brokerName].online += 1;
+    }
+    return acc;
+  }, {});
 
   const handleMarkDown = async (brokerName: string) => {
     try {
       await routeServiceApi.markBrokerDown(brokerName);
-      message.success(`Broker "${brokerName}" marked as down`);
-      fetchCluster();
-    } catch (err: any) {
-      message.error('Failed to mark broker down');
+      message.success(`Broker "${brokerName}" has been removed from the route pool for a cooldown window.`);
+      await loadCluster();
+    } catch (markError) {
+      message.error(getErrorMessage(markError, 'Failed to mark broker down'));
     }
   };
 
@@ -73,7 +101,9 @@ const Brokers: React.FC = () => {
       render: (name: string) => (
         <Space>
           <CloudServerOutlined />
-          <Text strong code>{name}</Text>
+          <Text strong code>
+            {name}
+          </Text>
         </Space>
       ),
       sorter: (a, b) => (a.brokerName || '').localeCompare(b.brokerName || ''),
@@ -89,51 +119,61 @@ const Brokers: React.FC = () => {
       ),
     },
     {
-      title: 'IP Address',
+      title: 'Address',
       dataIndex: 'ip',
       key: 'ip',
       render: (ip: string) => (
-        <Space><GlobalOutlined />{ip || '-'}</Space>
+        <Space>
+          <GlobalOutlined />
+          <Text>{ip || '-'}</Text>
+        </Space>
       ),
     },
     {
       title: 'MQTT Port',
       dataIndex: 'tcpPort',
       key: 'tcpPort',
-      width: 110,
+      width: 120,
       align: 'center',
-      render: (port: number) => (
-        <Tag color="green">TCP:{port}</Tag>
-      ),
+      render: (port: number) => <Tag color="green">TCP {port}</Tag>,
     },
     {
       title: 'HTTP Port',
       dataIndex: 'httpPort',
       key: 'httpPort',
-      width: 110,
+      width: 120,
       align: 'center',
-      render: (port: number) => (
-        <Tag color="blue">HTTP:{port}</Tag>
-      ),
+      render: (port: number) => <Tag color="blue">HTTP {port}</Tag>,
+    },
+    {
+      title: 'Assigned Clients',
+      key: 'assignedClients',
+      width: 150,
+      render: (_, record) => {
+        const usage = brokerUsage[record.brokerName] || { total: 0, online: 0 };
+        return (
+          <Space direction="vertical" size={0}>
+            <Text strong>{usage.total}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {usage.online} online
+            </Text>
+          </Space>
+        );
+      },
     },
     {
       title: 'Actions',
       key: 'action',
-      width: 120,
+      width: 140,
       render: (_, record) => (
         <Popconfirm
-          title={`Mark broker "${record.brokerName}" as down?`}
-          description="This will temporarily remove it from the routing pool for 30 seconds."
-          onConfirm={() => handleMarkDown(record.brokerName)}
-          okText="Yes"
-          cancelText="No"
+          title={`Mark "${record.brokerName}" down?`}
+          description="The route service will temporarily stop assigning users to this broker."
+          onConfirm={() => void handleMarkDown(record.brokerName)}
+          okText="Mark Down"
+          cancelText="Cancel"
         >
-          <Button
-            type="link"
-            size="small"
-            danger
-            icon={<StopOutlined />}
-          >
+          <Button type="link" size="small" danger icon={<StopOutlined />}>
             Mark Down
           </Button>
         </Popconfirm>
@@ -141,11 +181,13 @@ const Brokers: React.FC = () => {
     },
   ];
 
+  const totalAssignedClients = Object.values(brokerUsage).reduce((sum, usage) => sum + usage.total, 0);
+
   return (
     <div style={{ padding: '0 8px' }}>
       {error && (
         <Alert
-          message="Error"
+          message="Cluster data is unavailable"
           description={error}
           type="warning"
           showIcon
@@ -155,7 +197,33 @@ const Brokers: React.FC = () => {
         />
       )}
 
-      {/* Header */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Cluster Name" value={clusterInfo?.clusterName || 'default'} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Broker Nodes" value={clusterInfo?.brokerCount ?? 0} prefix={<CloudServerOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic title="Assigned Clients" value={totalAssignedClients} valueStyle={{ color: '#1677ff' }} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              title="Last Refresh"
+              value={formatRelativeAge(clusterInfo?.refreshTime ?? null)}
+              valueStyle={{ fontSize: 24 }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
       <Card>
         <Row justify="space-between" align="middle">
           <Col>
@@ -164,50 +232,35 @@ const Brokers: React.FC = () => {
                 <CloudServerOutlined style={{ marginRight: 8 }} />
                 Broker Cluster Management
               </Text>
-              {clusterInfo && (
-                <>
-                  <Tag color="blue">{clusterInfo.clusterName || 'default'}</Tag>
-                  <Tag color="processing">
-                    {clusterInfo.brokerCount} Nodes
-                  </Tag>
-                </>
-              )}
+              <Tag color="blue">{clusterInfo?.clusterName || 'default'}</Tag>
+              <Tag color="processing">{clusterInfo?.brokerCount ?? 0} nodes</Tag>
             </Space>
           </Col>
           <Col>
-            <Button
-              type="primary"
-              icon={<ReloadOutlined />}
-              onClick={fetchCluster}
-              loading={loading}
-            >
+            <Button type="primary" icon={<ReloadOutlined />} onClick={() => void loadCluster()} loading={loading}>
               Refresh
             </Button>
           </Col>
         </Row>
       </Card>
 
-      {/* Cluster Info Summary */}
-      {!loading && clusterInfo && (
-        <Card size="small" style={{ marginTop: 16 }} bordered>
-          <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small">
-            <Descriptions.Item label="Cluster Name">
-              <Text code>{clusterInfo.clusterName || 'default'}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Total Nodes">
-              <Badge count={clusterInfo.brokerCount} style={{ backgroundColor: '#52c41a' }}
-                overflowCount={999} />
-            </Descriptions.Item>
-            <Descriptions.Item label="Last Refresh">
-              {clusterInfo.refreshTime > 0
-                ? new Date(clusterInfo.refreshTime).toLocaleString()
-                : 'N/A'}
-            </Descriptions.Item>
-          </Descriptions>
-        </Card>
-      )}
+      <Card size="small" style={{ marginTop: 16 }}>
+        <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small">
+          <Descriptions.Item label="Cluster Name">
+            <Text code>{clusterInfo?.clusterName || 'default'}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Broker Count">
+            <Badge count={clusterInfo?.brokerCount ?? 0} style={{ backgroundColor: '#52c41a' }} overflowCount={999} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Last Refresh">
+            {formatDateTime(clusterInfo?.refreshTime ?? null)}
+          </Descriptions.Item>
+          <Descriptions.Item label="Assigned Clients">
+            {totalAssignedClients}
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
 
-      {/* Table */}
       <Card style={{ marginTop: 16 }}>
         <Table
           columns={columns}
@@ -217,19 +270,29 @@ const Brokers: React.FC = () => {
           pagination={false}
           locale={{
             emptyText: loading ? null : (
-              <div style={{ padding: 40, textAlign: 'center' }}>
-                <ClockCircleOutlined style={{ fontSize: 48, color: '#ccc', marginBottom: 16 }} />
-                <p>No broker nodes found</p>
-                <Text type="secondary">
-                  Broker nodes will appear here once registered with ZooKeeper
-                </Text>
-              </div>
-            )
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="No broker nodes are registered with the route service."
+              />
+            ),
           }}
         />
+      </Card>
+
+      <Card title="Operational Note" size="small" style={{ marginTop: 16 }}>
+        <Space direction="vertical" size={4}>
+          <Text>
+            <ClockCircleOutlined style={{ marginRight: 8 }} />
+            Marking a broker down is an operational override for the route pool. It is useful for failover drills and maintenance windows.
+          </Text>
+          <Text type="secondary">
+            The page combines cluster topology with client assignments, so you can immediately see whether a broker is still carrying user traffic.
+          </Text>
+        </Space>
       </Card>
     </div>
   );
 };
 
 export default Brokers;
+

@@ -72,7 +72,9 @@ public class QosProcessor {
         for (final Subscription sub : topicMatchingSubscriptions) {
             ClientSession clientSession = sessionsRepository.getSession(sub.getClientId());
             if(null == clientSession){
-                logger.error("存在严重bug, session已经失效，但订阅的topic依然保留, msgUUID={}, sub:{}", pubMsg.getMsgUUID(), sub);
+                // FIX: 当Session失效时，清理孤立的订阅，防止内存泄漏
+                logger.warn("Session已过期，清理孤立订阅: clientId={}, topic={}", sub.getClientId(), sub.getTopicFilter());
+                subscriptionsDirectory.removeSubscription(sub);
                 continue;
             }
 

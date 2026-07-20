@@ -198,26 +198,73 @@ public class Mqtt2HttpMsgListener extends Thread implements MqttMsgListener {
     public boolean mqttChannelAuth(String clientId, String userName, String password) {
         boolean authSuccess = false;
         try {
-            // clientId 格式应为 xxx_{userId}，如 client_1
+            // 格式验证：clientId 应为 {prefix}_{userId}，如 client_12345
+            // 1. 检查 clientId 不为空且长度合理
+            if (clientId == null || clientId.trim().isEmpty()) {
+                logger.warn("mqtt授权失败，clientId为空");
+                return false;
+            }
+            if (clientId.length() > 256) {
+                logger.warn("mqtt授权失败，clientId长度超过256: clientId={}", clientId);
+                return false;
+            }
+            
+            // 2. 分离 prefix 和 userId
             String[] parts = clientId.split("_");
             if (parts.length < 2) {
-                logger.warn("mqtt授权失败，clientId格式不正确(缺少_)，应为xxx_{userId}: clientId={}", clientId);
+                logger.warn("mqtt授权失败，clientId格式不正确(缺少_分隔符)，应为{prefix}_{userId}: clientId={}", clientId);
                 return false;
             }
+            
             String userId = parts[parts.length - 1];
+            
+            // 3. 验证 userId 是否为有效的数字
+            if (userId == null || userId.trim().isEmpty()) {
+                logger.warn("mqtt授权失败，userId为空: clientId={}", clientId);
+                return false;
+            }
+            if (!userId.matches("^\\d+$")) {
+                logger.warn("mqtt授权失败，userId不是有效的数字: userId={}, clientId={}", userId, clientId);
+                return false;
+            }
+            
+            // 4. 检查 userName 和 password 不为空
+            if (userName == null || userName.trim().isEmpty() || 
+                password == null || password.trim().isEmpty()) {
+                logger.warn("mqtt授权失败，userName或password为空: clientId={}", clientId);
+                return false;
+            }
+            
+            // 5. 从 Redis 查询用户状态
             String userJson = redisTemplate.opsForValue().get(USER_STATUS + userId);
             if (userJson == null) {
-                logger.warn("mqtt授权失败，用户状态不存在: userId={}", userId);
+                logger.warn("mqtt授权失败，用户状态不存在: userId={}, clientId={}", userId, clientId);
                 return false;
             }
+            
+            // 6. 验证用户名和密码
             JSONObject jsonObject = JSON.parseObject(userJson);
-            if (userName.equals(jsonObject.getString("userName")) && password.equals(jsonObject.getString("token"))) {
-                authSuccess =  true;
-                addClientInfo(clientId,Long.valueOf(userId));
+            String storedUserName = jsonObject.getString("userName");
+            String storedToken = jsonObject.getString("token");
+            
+            if (storedUserName == null || storedToken == null) {
+                logger.warn("mqtt授权失败，Redis中用户数据不完整: userId={}, clientId={}", userId, clientId);
+                return false;
             }
-        }catch (Exception e){
-            logger.error("mqtt授权失败，请求失败 clientId:{},userName:{},password:{}", clientId, userName, password, e);
-            authSuccess  = false;
+            
+            if (userName.equals(storedUserName) && password.equals(storedToken)) {
+                authSuccess = true;
+                addClientInfo(clientId, Long.valueOf(userId));
+                logger.info("mqtt授权成功: clientId={}, userId={}", clientId, userId);
+            } else {
+                logger.warn("mqtt授权失败，用户名或密码不匹配: userId={}, clientId={}", userId, clientId);
+            }
+        } catch (NumberFormatException e) {
+            logger.error("mqtt授权失败，userId转换为long出错: clientId={}, userName:{}", clientId, userName, e);
+            authSuccess = false;
+        } catch (Exception e) {
+            logger.error("mqtt授权失败，发生异常: clientId={}, userName={}", clientId, userName, e);
+            authSuccess = false;
         }
         return authSuccess;
     }

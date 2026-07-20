@@ -12,7 +12,7 @@
     <properties>
         <vertx.core.version>3.8.5</vertx.core.version>
         <mqttClient.version>1.1.1</mqttClient.version>
-        <fastjson.version>1.2.44</fastjson.version>
+        <fastjson.version>1.2.83</fastjson.version>
     </properties>
 
     <parent>

@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { PROJECT_SERVICES } from '../constants/platform';
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -129,7 +130,7 @@ const AppLayout: React.FC = () => {
             <div>
               <WifiOutlined style={{ marginRight: 6, fontSize: 12 }} />
               <Text style={{ color: '#fff', fontSize: 11 }}>
-                TCP:23242 | WS:8083 | HTTP:23240
+                TCP:{PROJECT_SERVICES.broker.tcpPort} | WS:{PROJECT_SERVICES.broker.websocketPort} | HTTP:{PROJECT_SERVICES.broker.httpPort}
               </Text>
             </div>
           </div>

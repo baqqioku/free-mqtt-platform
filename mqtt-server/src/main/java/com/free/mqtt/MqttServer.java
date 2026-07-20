@@ -1,8 +1,5 @@
 package com.free.mqtt;
 
-
-import com.free.ao.PushMsgAo;
-import com.free.common.constant.MqttConstant;
 import com.free.mqtt.server.MqttMsgProcessThread;
 import com.free.mqtt.server.MqttPushRequest;
 import com.free.mqtt.server.auth.DefaultAuthorizator;
@@ -76,6 +73,7 @@ public class MqttServer {
 
         try {
             Interceptor interceptor = new MqttInterceptor(this,mqttServerConfig.getFilterTopic());
+            
             subscriptionsDirectory = new TreeSubscriptionDirectory();
             sessionRepository = new SessionRepository(subscriptionsDirectory);
 

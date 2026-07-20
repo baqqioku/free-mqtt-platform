@@ -1,117 +1,135 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Alert, Typography, Progress } from 'antd';
+import React, { useEffect, useState } from 'react';
 import {
-  CloudServerOutlined,
-  MessageOutlined,
-  RiseOutlined,
-  ClockCircleOutlined,
-  WifiOutlined,
-  DatabaseOutlined,
+  Alert,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Progress,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import {
   ApiOutlined,
-  ReloadOutlined
+  CloudServerOutlined,
+  DatabaseOutlined,
+  ReloadOutlined,
+  RiseOutlined,
+  WifiOutlined,
 } from '@ant-design/icons';
-import { adminApi, routeServiceApi, ClientInfo } from '../api';
+import { adminApi, ClientInfo, ClusterInfo, getErrorMessage, routeServiceApi, SystemStats } from '../api';
+import { PROJECT_SERVICES } from '../constants/platform';
+import { formatBrokerAddress, formatDateTime, formatHours, formatRelativeAge } from '../utils/format';
 
 const { Title, Text } = Typography;
 
-interface DashboardStats {
-  totalClients: number;
-  onlineClients: number;
-  messagesToday: number;
-  messageRate: number;
-  uptime: number;
-  timestamp: number;
-}
-
 const Dashboard: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalClients: 0,
-    onlineClients: 0,
-    messagesToday: 0,
-    messageRate: 0,
-    uptime: 0,
-    timestamp: Date.now()
-  });
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [cluster, setCluster] = useState<ClusterInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
 
-  const fetchStats = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadDashboard = async (silent = false) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const [statsRes, clientsRes] = await Promise.all([
+      const [statsData, clientData, clusterData] = await Promise.all([
         adminApi.getStats(),
-        routeServiceApi.getClients()
+        routeServiceApi.getClients(),
+        routeServiceApi.getCluster(),
       ]);
 
-      if (statsRes?.dataBody) {
-        const data = statsRes.dataBody as any;
-        setStats({
-          totalClients: data.totalClients || 0,
-          onlineClients: data.onlineClients || 0,
-          messagesToday: data.messagesToday || 0,
-          messageRate: data.messageRate || 0,
-          uptime: Math.floor((Date.now() - (data.timestamp || Date.now())) / 3600000),
-          timestamp: data.timestamp || Date.now()
-        });
-      }
-
-      if (clientsRes?.dataBody) {
-        setClients(clientsRes.dataBody);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch data');
+      setStats(statsData ?? null);
+      setClients(clientData ?? []);
+      setCluster(clusterData ?? null);
+      setUpdatedAt(Date.now());
+      setError(null);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError, 'Failed to load dashboard data'));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchStats();
-    const timer = setInterval(fetchStats, 10000);
-    return () => clearInterval(timer);
-  }, [fetchStats]);
+    void loadDashboard();
+    const timer = window.setInterval(() => {
+      void loadDashboard(true);
+    }, 10000);
 
-  const clientColumns = [
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const onlineClients = stats?.onlineClients ?? clients.filter((client) => client.online).length;
+  const totalClients = stats?.totalClients ?? clients.length;
+  const offlineClients = Math.max(totalClients - onlineClients, 0);
+  const brokerCount = cluster?.brokerCount ?? cluster?.brokers.length ?? 0;
+  const clientRatio = totalClients > 0 ? Math.round((onlineClients / totalClients) * 100) : 0;
+
+  const clientColumns: ColumnsType<ClientInfo> = [
     {
       title: 'User',
       dataIndex: 'userName',
       key: 'userName',
-      render: (name: string) => <Text code>{name || '-'}</Text>
+      render: (value: string) => <Text code>{value || '-'}</Text>,
     },
     {
       title: 'Status',
       dataIndex: 'online',
       key: 'online',
+      width: 120,
       render: (online: boolean) =>
         online ? (
-          <Tag icon={<WifiOutlined />} color="success">Online</Tag>
+          <Tag icon={<WifiOutlined />} color="success">
+            Online
+          </Tag>
         ) : (
           <Tag color="default">Offline</Tag>
-        )
+        ),
     },
     {
       title: 'Broker',
-      dataIndex: 'brokerName',
-      key: 'brokerName',
-      render: (name: string) => name ? <Tag color="blue">{name}</Tag> : <Text type="secondary">-</Text>
-    }
+      key: 'broker',
+      render: (_, record) =>
+        record.brokerName ? (
+          <Space direction="vertical" size={0}>
+            <Tag color="blue">{record.brokerName}</Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {formatBrokerAddress(record.brokerIp, record.brokerTcpPort, record.brokerHttpPort)}
+            </Text>
+          </Space>
+        ) : (
+          <Text type="secondary">Unassigned</Text>
+        ),
+    },
   ];
 
-  const clientRatio = stats.totalClients > 0
-    ? Math.round((stats.onlineClients / stats.totalClients) * 100)
-    : 0;
-
-  if (error) {
+  if (error && !loading) {
     return (
       <Alert
-        message="Connection Error"
+        message="Dashboard data is unavailable"
         description={error}
         type="error"
         showIcon
         action={
-          <ReloadOutlined onClick={fetchStats} style={{ cursor: 'pointer', fontSize: 18 }} />
+          <Button type="primary" icon={<ReloadOutlined />} onClick={() => void loadDashboard()}>
+            Retry
+          </Button>
         }
       />
     );
@@ -120,45 +138,48 @@ const Dashboard: React.FC = () => {
   return (
     <Spin spinning={loading}>
       <div style={{ padding: '0 8px' }}>
-        {/* Header */}
         <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
           <Col>
-            <Title level={3} style={{ margin: 0 }}>
-              <ApiOutlined style={{ marginRight: 12 }} />
-              MQTT Admin Dashboard
-            </Title>
+            <Space direction="vertical" size={2}>
+              <Title level={3} style={{ margin: 0 }}>
+                <ApiOutlined style={{ marginRight: 12 }} />
+                MQTT Operations Dashboard
+              </Title>
+              <Text type="secondary">
+                Registered clients, broker topology, and runtime health in one place.
+              </Text>
+            </Space>
           </Col>
           <Col>
-            <ReloadOutlined 
-              onClick={fetchStats} 
-              style={{ cursor: 'pointer', fontSize: 20 }}
-              spin={loading}
-            />
+            <Space>
+              <Text type="secondary">Last synced {formatRelativeAge(updatedAt)}</Text>
+              <Button
+                icon={<ReloadOutlined spin={refreshing} />}
+                onClick={() => void loadDashboard(true)}
+                loading={refreshing}
+              >
+                Refresh
+              </Button>
+            </Space>
           </Col>
         </Row>
 
-        {/* Stats Cards */}
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={24} sm={12} lg={6}>
             <Card hoverable bordered={false} className="stat-card">
               <Statistic
                 title={<Text type="secondary">Online Clients</Text>}
-                value={stats.onlineClients}
+                value={onlineClients}
                 prefix={<CloudServerOutlined style={{ color: '#3f8600' }} />}
-                suffix={`/ ${stats.totalClients}`}
+                suffix={`/ ${totalClients}`}
                 valueStyle={{ color: '#3f8600', fontSize: 28 }}
               />
-              <Progress percent={clientRatio} size="small" showInfo={false} strokeColor="#3f8600" style={{ marginTop: 8 }} />
-            </Card>
-          </Col>
-
-          <Col xs={24} sm={12} lg={6}>
-            <Card hoverable bordered={false} className="stat-card">
-              <Statistic
-                title={<Text type="secondary">Messages Today</Text>}
-                value={stats.messagesToday}
-                prefix={<MessageOutlined style={{ color: '#cf1322' }} />}
-                valueStyle={{ color: '#cf1322', fontSize: 28 }}
+              <Progress
+                percent={clientRatio}
+                size="small"
+                showInfo={false}
+                strokeColor="#3f8600"
+                style={{ marginTop: 8 }}
               />
             </Card>
           </Col>
@@ -166,12 +187,28 @@ const Dashboard: React.FC = () => {
           <Col xs={24} sm={12} lg={6}>
             <Card hoverable bordered={false} className="stat-card">
               <Statistic
-                title={<Text type="secondary">Message Rate</Text>}
-                value={stats.messageRate}
-                prefix={<RiseOutlined style={{ color: '#1890ff' }} />}
-                suffix="msg/s"
-                valueStyle={{ color: '#1890ff', fontSize: 28 }}
+                title={<Text type="secondary">Offline Clients</Text>}
+                value={offlineClients}
+                prefix={<WifiOutlined style={{ color: '#fa8c16' }} />}
+                valueStyle={{ color: '#fa8c16', fontSize: 28 }}
               />
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                Users without an active broker session.
+              </Text>
+            </Card>
+          </Col>
+
+          <Col xs={24} sm={12} lg={6}>
+            <Card hoverable bordered={false} className="stat-card">
+              <Statistic
+                title={<Text type="secondary">Broker Nodes</Text>}
+                value={brokerCount}
+                prefix={<DatabaseOutlined style={{ color: '#1677ff' }} />}
+                valueStyle={{ color: '#1677ff', fontSize: 28 }}
+              />
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                Cluster: {cluster?.clusterName || 'default'}
+              </Text>
             </Card>
           </Col>
 
@@ -179,58 +216,51 @@ const Dashboard: React.FC = () => {
             <Card hoverable bordered={false} className="stat-card">
               <Statistic
                 title={<Text type="secondary">System Uptime</Text>}
-                value={stats.uptime}
-                prefix={<ClockCircleOutlined style={{ color: '#722ed1' }} />}
+                value={stats?.uptime ?? 0}
+                prefix={<RiseOutlined style={{ color: '#722ed1' }} />}
                 suffix="hours"
                 valueStyle={{ color: '#722ed1', fontSize: 28 }}
               />
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                Message rate: {stats?.messageRate ?? 0} msg/s
+              </Text>
             </Card>
           </Col>
         </Row>
 
-        {/* System Info & Recent Clients */}
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={10}>
-            <Card
-              title={<><DatabaseOutlined /> System Information</>}
-              size="small"
-            >
-              <Row gutter={[8, 16]}>
-                <Col span={12}>
-                  <Text strong>MQTT Broker:</Text><br/>
-                  <Text type="secondary">TCP Port: 23242</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>WebSocket:</Text><br/>
-                  <Text type="secondary">WS Port: 8083</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>HTTP API:</Text><br/>
-                  <Text type="secondary">Port: 23240</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>Route Service:</Text><br/>
-                  <Text type="secondary">Port: 8084</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>ZooKeeper:</Text><br/>
-                  <Text type="secondary">Port: 2181</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>Redis:</Text><br/>
-                  <Text type="secondary">Port: 6379</Text>
-                </Col>
-              </Row>
+            <Card title={<><DatabaseOutlined /> Cluster Overview</>} size="small">
+              {cluster?.brokers?.length ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  {cluster.brokers.map((broker) => (
+                    <Card key={broker.brokerName} size="small" bordered={false} style={{ background: '#fafafa' }}>
+                      <Space direction="vertical" size={2}>
+                        <Space>
+                          <Text strong code>
+                            {broker.brokerName}
+                          </Text>
+                          <Tag color="success">Online</Tag>
+                        </Space>
+                        <Text type="secondary">{formatBrokerAddress(broker.ip, broker.tcpPort, broker.httpPort)}</Text>
+                      </Space>
+                    </Card>
+                  ))}
+                </Space>
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="No broker nodes are currently registered"
+                />
+              )}
             </Card>
           </Col>
 
           <Col xs={24} lg={14}>
             <Card
-              title={<><CloudServerOutlined /> Connected Clients ({clients.length})</>}
+              title={<><CloudServerOutlined /> Registered Clients</>}
               size="small"
-              extra={
-                <ReloadOutlined onClick={fetchStats} style={{ cursor: 'pointer' }} />
-              }
+              extra={<Text type="secondary">{clients.length} records</Text>}
             >
               <Table
                 columns={clientColumns}
@@ -238,27 +268,67 @@ const Dashboard: React.FC = () => {
                 rowKey="userId"
                 pagination={false}
                 size="small"
-                scroll={{ y: 200 }}
-                locale={{ emptyText: 'No connected clients' }}
+                scroll={{ y: 280 }}
+                locale={{ emptyText: 'No clients have been registered yet.' }}
               />
             </Card>
           </Col>
         </Row>
-      </div>
 
-      {/* Global Styles */}
-      <style>{`
-        .stat-card:hover {
-          transform: translateY(-4px);
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-        .ant-statistic-content-value {
-          font-weight: 600 !important;
-        }
-      `}</style>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={12}>
+            <Card title="Runtime Details" size="small">
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Broker HTTP API">
+                  <Text code>http://localhost:{PROJECT_SERVICES.broker.httpPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Route Service">
+                  <Text code>http://localhost:{PROJECT_SERVICES.route.httpPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Message Counter">
+                  {stats?.messagesToday ?? 0} today
+                </Descriptions.Item>
+                <Descriptions.Item label="Last Broker Refresh">
+                  {formatDateTime(cluster?.refreshTime ?? null)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Server Timestamp">
+                  {formatDateTime(stats?.timestamp ?? null)}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={12}>
+            <Card title="Service Endpoints" size="small">
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="MQTT TCP">
+                  <Text code>{PROJECT_SERVICES.broker.tcpPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="MQTT WebSocket">
+                  <Text code>{PROJECT_SERVICES.broker.websocketPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Broker HTTP">
+                  <Text code>{PROJECT_SERVICES.broker.httpPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Route HTTP">
+                  <Text code>{PROJECT_SERVICES.route.httpPort}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Redis / ZooKeeper">
+                  <Text code>
+                    {PROJECT_SERVICES.redis.port} / {PROJECT_SERVICES.zookeeper.port}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Uptime (friendly)">
+                  {formatHours(stats?.uptime)}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </Col>
+        </Row>
+      </div>
     </Spin>
   );
 };
 
 export default Dashboard;
+

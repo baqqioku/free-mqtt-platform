@@ -1,456 +1,360 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Card,
-  Form,
-  Input,
-  Switch,
-  Button,
-  Space,
-  Row,
-  Col,
-  Typography,
-  Divider,
-  InputNumber,
-  Select,
-  message,
-  Tag,
   Alert,
-  Tabs,
+  Card,
+  Col,
+  Descriptions,
+  Divider,
+  List,
+  Row,
+  Space,
+  Statistic,
   Table,
-  Modal,
-  Descriptions
+  Tabs,
+  Tag,
+  Typography,
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
-  SettingOutlined,
-  SaveOutlined,
-  ReloadOutlined,
-  DatabaseOutlined,
-  CloudServerOutlined,
-  SafetyCertificateOutlined,
-  BellOutlined,
   ApiOutlined,
-  ApartmentOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined
+  CloudServerOutlined,
+  DatabaseOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
+import { adminApi, ClientInfo, ClusterInfo, getErrorMessage, SystemStats, routeServiceApi } from '../api';
+import { API_REFERENCE, ApiReferenceItem, KNOWN_LIMITATIONS, PROJECT_SERVICES, REQUEST_EXAMPLES } from '../constants/platform';
+import { formatDateTime, formatHours } from '../utils/format';
 
-const { Text, Title, Paragraph } = Typography;
-const { Option } = Select;
-const { TextArea } = Input;
+const { Paragraph, Text, Title } = Typography;
+
+interface RuntimeServiceRow {
+  key: string;
+  component: string;
+  status: string;
+  port: string;
+  note: string;
+}
 
 const Settings: React.FC = () => {
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm();
-  const [activeTab, setActiveTab] = useState('server');
+  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [cluster, setCluster] = useState<ClusterInfo | null>(null);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock system config - would come from API in production
-  const [config, setConfig] = useState({
-    // Server Settings
-    serverPort: 23242,
-    wsPort: 8083,
-    httpApiPort: 23240,
-    maxConnections: 10000,
-    keepAliveInterval: 60,
-    willDelaySeconds: 0,
-
-    // Cluster Settings
-    clusterEnabled: false,
-    zkAddress: '127.0.0.1:2181',
-    brokerName: 'broker-1',
-
-    // Auth Settings
-    authEnabled: true,
-    aclEnabled: true,
-    aclDefaultAllow: true,
-    
-    // Redis Settings
-    redisHost: 'localhost',
-    redisPort: 6379,
-    redisPassword: '',
-    
-    // Route Service
-    routeServiceUrl: 'http://localhost:8084',
-  });
-
-  useEffect(() => {
-    form.setFieldsValue(config);
-  }, [config, form]);
-
-  const handleSave = async (section: string) => {
-    setSaving(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 800));
-      message.success(`${section} settings saved successfully!`);
-    } catch (err) {
-      message.error('Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = () => {
-    Modal.confirm({
-      title: 'Reset All Settings',
-      content: 'Are you sure you want to reset all settings to defaults?',
-      okText: 'Yes, Reset',
-      cancelText: 'Cancel',
-      okType: 'danger',
-      onOk: () => {
-        setConfig({ ...config });
-        form.resetFields();
-        message.info('Settings reset to default values');
-      }
-    });
-  };
-
-  const handleTestConnection = async (type: string) => {
+  const loadRuntime = async () => {
     setLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      message.success(`${type} connection test successful`);
-    } catch (err) {
-      message.error(`Failed to connect to ${type}`);
+      const [statsData, clusterData, clientsData] = await Promise.all([
+        adminApi.getStats(),
+        routeServiceApi.getCluster(),
+        routeServiceApi.getClients(),
+      ]);
+
+      setStats(statsData ?? null);
+      setCluster(clusterData ?? null);
+      setClients(clientsData ?? []);
+      setError(null);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError, 'Failed to load runtime snapshot'));
     } finally {
       setLoading(false);
     }
   };
 
-  // System Status Data
-  const systemStatusData = [
-    { key: '1', component: 'MQTT Broker', status: 'Running', port: 23242 },
-    { key: '2', component: 'WebSocket', status: 'Running', port: 8083 },
-    { key: '3', component: 'HTTP API', status: 'Running', port: 23240 },
-    { key: '4', component: 'Route Service', status: 'Running', port: 8084 },
-    { key: '5', component: 'ZooKeeper', status: 'Connected', port: 2181 },
-    { key: '6', component: 'Redis', status: 'Connected', port: 6379 },
+  useEffect(() => {
+    void loadRuntime();
+  }, []);
+
+  const runtimeRows: RuntimeServiceRow[] = [
+    {
+      key: 'broker-http',
+      component: PROJECT_SERVICES.broker.name,
+      status: 'Running',
+      port: String(PROJECT_SERVICES.broker.httpPort),
+      note: 'Provides /admin/stats and /admin/messages.',
+    },
+    {
+      key: 'broker-tcp',
+      component: 'MQTT TCP Listener',
+      status: 'Running',
+      port: String(PROJECT_SERVICES.broker.tcpPort),
+      note: 'Primary device connection endpoint.',
+    },
+    {
+      key: 'broker-ws',
+      component: 'MQTT WebSocket',
+      status: 'Running',
+      port: String(PROJECT_SERVICES.broker.websocketPort),
+      note: 'WebSocket transport for browser-friendly MQTT clients.',
+    },
+    {
+      key: 'route-http',
+      component: PROJECT_SERVICES.route.name,
+      status: 'Running',
+      port: String(PROJECT_SERVICES.route.httpPort),
+      note: 'Handles register/login, routing, cluster admin, and push operations.',
+    },
+    {
+      key: 'redis',
+      component: PROJECT_SERVICES.redis.name,
+      status: 'External',
+      port: String(PROJECT_SERVICES.redis.port),
+      note: 'Stores user registry, broker assignments, and offline delivery data.',
+    },
+    {
+      key: 'zk',
+      component: PROJECT_SERVICES.zookeeper.name,
+      status: 'External',
+      port: String(PROJECT_SERVICES.zookeeper.port),
+      note: 'Tracks broker membership when cluster mode is enabled.',
+    },
   ];
 
-  const statusColumns = [
+  const runtimeColumns: ColumnsType<RuntimeServiceRow> = [
     {
       title: 'Component',
       dataIndex: 'component',
       key: 'component',
-      render: (text: string) => <Text strong>{text}</Text>
+      render: (value: string) => <Text strong>{value}</Text>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status: string) =>
-        ['Running', 'Connected'].includes(status) ? (
-          <Tag icon={<CheckCircleOutlined />} color="success">{status}</Tag>
-        ) : (
-          <Tag icon={<ExclamationCircleOutlined />} color="error">{status}</Tag>
-        )
+      width: 140,
+      render: (value: string) => (
+        <Tag color={value === 'External' ? 'default' : 'success'}>
+          {value}
+        </Tag>
+      ),
     },
     {
       title: 'Port',
       dataIndex: 'port',
       key: 'port',
-      render: (port: number) => <Text code>{port}</Text>
-    }
+      width: 120,
+      render: (value: string) => <Text code>{value}</Text>,
+    },
+    {
+      title: 'Note',
+      dataIndex: 'note',
+      key: 'note',
+    },
   ];
 
-  const tabItems = [
+  const apiColumns: ColumnsType<ApiReferenceItem> = [
     {
-      key: 'server',
-      label: <><CloudServerOutlined /> Server Config</>,
-      children: (
-        <Form layout="vertical" form={form} size="large">
-          <Row gutter={24}>
-            <Col span={12}>
-              <Form.Item label="MQTT TCP Port" name="serverPort">
-                <InputNumber min={1024} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="WebSocket Port" name="wsPort">
-                <InputNumber min={1024} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          
-          <Row gutter={24}>
-            <Col span={12}>
-              <Form.Item label="HTTP API Port" name="httpApiPort">
-                <InputNumber min={1024} max={65535} style={{ width: '100%' }} disabled />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Max Connections" name="maxConnections">
-                <InputNumber min={100} max={100000} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={24}>
-            <Col span={12}>
-              <Form.Item label="Keep Alive Interval (seconds)" name="keepAliveInterval">
-                <InputNumber min={10} max={3600} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Will Delay (seconds)" name="willDelaySeconds">
-                <InputNumber min={0} max={3600} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider />
-
-          <Space>
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => handleSave('Server')}>
-              Save Changes
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => form.resetFields()}>
-              Reset Form
-            </Button>
-          </Space>
-        </Form>
-      )
+      title: 'Service',
+      dataIndex: 'service',
+      key: 'service',
+      width: 160,
     },
     {
-      key: 'cluster',
-      label: <><ApartmentOutlined /> Cluster</>,
-      children: (
-        <Form layout="vertical" size="large">
-          <Alert
-            message="Cluster Configuration"
-            description="Enable cluster mode for high availability and horizontal scaling. Requires ZooKeeper."
-            type="info"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
-          <Form.Item label="Enable Cluster Mode" valuePropName="checked">
-            <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-          </Form.Item>
-
-          <Row gutter={24}>
-            <Col span={16}>
-              <Form.Item label="ZooKeeper Address">
-                <Input placeholder="host:port,host2:port2..." defaultValue={config.zkAddress} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item label="Broker Name">
-                <Input placeholder="broker-id" defaultValue={config.brokerName} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider />
-          
-          <Space>
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => handleSave('Cluster')}>
-              Save Cluster Config
-            </Button>
-            <Button 
-              icon={<ApiOutlined />}
-              loading={loading}
-              onClick={() => handleTestConnection('ZooKeeper')}
-            >
-              Test ZK Connection
-            </Button>
-          </Space>
-        </Form>
-      )
+      title: 'Method',
+      dataIndex: 'method',
+      key: 'method',
+      width: 100,
+      render: (method: ApiReferenceItem['method']) => (
+        <Tag color={method === 'GET' ? 'blue' : 'green'}>{method}</Tag>
+      ),
     },
     {
-      key: 'auth',
-      label: <><SafetyCertificateOutlined /> Authentication</>,
-      children: (
-        <Form layout="vertical" size="large">
-          <Alert
-            message="Security Settings"
-            description="Configure authentication and access control for MQTT clients."
-            type="warning"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
-          <Card size="small" title={<><BellOutlined /> General</>} style={{ marginBottom: 16 }}>
-            <Row gutter={24}>
-              <Col span={12}>
-                <Form.Item label="Enable Authentication" valuePropName="checked">
-                  <Switch checkedChildren="ON" unCheckedChildren="OFF" defaultChecked={config.authEnabled} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="Default Allow" valuePropName="checked">
-                  <Switch checkedChildren="ON" unCheckedChildren="OFF" defaultChecked={config.aclDefaultAllow} />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Card>
-
-          <Card size="small" title={<><SafetyCertificateOutlined /> ACL Configuration</>}>
-            <Form.Item label="Enable ACL" valuePropName="checked">
-              <Switch checkedChildren="ON" unCheckedChildren="OFF" defaultChecked={config.aclEnabled} />
-            </Form.Item>
-            
-            <Form.Item label="ACL Rules File Path">
-              <Input placeholder="/path/to/acl.conf" defaultValue="./acl.conf" />
-            </Form.Item>
-            
-            <Form.Item label="ACL Reload Interval (seconds)">
-              <InputNumber min={0} max={86400} style={{ width: '100%' }} defaultValue={30} />
-            </Form.Item>
-          </Card>
-
-          <Divider />
-          
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => handleSave('Auth')}>
-            Save Auth Settings
-          </Button>
-        </Form>
-      )
+      title: 'Path',
+      dataIndex: 'path',
+      key: 'path',
+      width: 220,
+      render: (value: string) => <Text code>{value}</Text>,
     },
     {
-      key: 'storage',
-      label: <><DatabaseOutlined /> Storage</>,
-      children: (
-        <Form layout="vertical" size="large">
-          <Alert
-            message="Redis Configuration"
-            description="Configure Redis connection for session storage, retained messages, and offline message queue."
-            type="info"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
-          <Row gutter={24}>
-            <Col span={12}>
-              <Form.Item label="Redis Host">
-                <Input placeholder="localhost or IP address" defaultValue={config.redisHost} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Redis Port">
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} defaultValue={config.redisPort} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item label="Password (optional)">
-            <Input.Password placeholder="Leave empty if no authentication required" defaultValue={config.redisPassword} />
-          </Form.Item>
-
-          <Form.Item label="Database Number">
-            <InputNumber min={0} max={15} style={{ width: '100%' }} defaultValue={0} />
-          </Form.Item>
-
-          <Divider />
-          
-          <Space>
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => handleSave('Storage')}>
-              Save Storage Config
-            </Button>
-            <Button
-              icon={<DatabaseOutlined />}
-              loading={loading}
-              onClick={() => handleTestConnection('Redis')}
-            >
-              Test Connection
-            </Button>
-          </Space>
-        </Form>
-      )
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
     },
     {
-      key: 'route',
-      label: <><ApiOutlined /> Route Service</>,
-      children: (
-        <Form layout="vertical" size="large">
-          <Alert
-            message="Route Service Integration"
-            description="Configure the route service URL for client routing and load balancing."
-            type="info"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
-          <Form.Item label="Route Service Base URL">
-            <Input placeholder="http://route-service:8084" defaultValue={config.routeServiceUrl} addonBefore="URL" />
-          </Form.Item>
-
-          <Descriptions bordered column={1} size="small" style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="Available Endpoints">
-              <div>
-                <Text code>/register</Text> - User registration<br/>
-                <Text code>/login</Text> - User login<br/>
-                <Text code>/pushMsg</Text> - Push message<br/>
-                <Text code>/getBroker</Text> - Get broker info<br/>
-                <Text code>/markBrokerDown</Text> - Mark broker down
-              </div>
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider />
-          
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => handleSave('Route')}>
-            Save Route Config
-          </Button>
-        </Form>
-      )
+      title: 'Note',
+      dataIndex: 'note',
+      key: 'note',
+      width: 300,
+      render: (value?: string) => <Text type="secondary">{value || '-'}</Text>,
     },
-    {
-      key: 'system',
-      label: <><SettingOutlined /> System Status</>,
-      children: (
-        <div>
-          <Alert
-            message="System Components Status"
-            description="Current status of all system components and services."
-            type="success"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
-          <Table
-            columns={statusColumns}
-            dataSource={systemStatusData}
-            pagination={false}
-            size="middle"
-            bordered
-          />
-
-          <Divider />
-          
-          <Space wrap>
-            <Button danger onClick={handleReset} icon={<ReloadOutlined />}>
-              Reset to Defaults
-            </Button>
-          </Space>
-        </div>
-      )
-    }
   ];
 
   return (
     <div style={{ padding: '0 8px' }}>
-      {/* Page Header */}
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          message="Runtime snapshot could not be loaded"
+          description={error}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Card>
         <Row justify="space-between" align="middle">
           <Col>
-            <Title level={4} style={{ margin: 0 }}>
-              <SettingOutlined style={{ marginRight: 12 }} />
-              System Settings & Configuration
-            </Title>
+            <Space direction="vertical" size={2}>
+              <Title level={4} style={{ margin: 0 }}>
+                <SettingOutlined style={{ marginRight: 12 }} />
+                System Settings & API Center
+              </Title>
+              <Text type="secondary">
+                Runtime visibility, endpoint reference, and integration notes for the admin UI.
+              </Text>
+            </Space>
           </Col>
         </Row>
       </Card>
 
-      {/* Settings Tabs */}
       <Card style={{ marginTop: 16 }}>
         <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={tabItems}
-          type="card"
-          size="large"
+          items={[
+            {
+              key: 'runtime',
+              label: (
+                <>
+                  <CloudServerOutlined /> Runtime Snapshot
+                </>
+              ),
+              children: (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="The settings page is read-only for now"
+                    description="The backend does not expose save endpoints for server, cluster, ACL, or Redis configuration yet. This page focuses on accurate runtime visibility instead of pretending to save changes."
+                  />
+
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card loading={loading}>
+                        <Statistic title="Registered Clients" value={stats?.totalClients ?? clients.length} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card loading={loading}>
+                        <Statistic title="Online Clients" value={stats?.onlineClients ?? clients.filter((client) => client.online).length} valueStyle={{ color: '#3f8600' }} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card loading={loading}>
+                        <Statistic title="Broker Nodes" value={cluster?.brokerCount ?? 0} valueStyle={{ color: '#1677ff' }} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card loading={loading}>
+                        <Statistic title="Uptime" value={formatHours(stats?.uptime)} valueStyle={{ fontSize: 24 }} />
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  <Card title="Current Runtime Detail" loading={loading}>
+                    <Descriptions column={{ xs: 1, md: 2 }} size="small">
+                      <Descriptions.Item label="Cluster Name">
+                        <Text code>{cluster?.clusterName || 'default'}</Text>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Broker Refresh Time">
+                        {formatDateTime(cluster?.refreshTime ?? null)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Server Timestamp">
+                        {formatDateTime(stats?.timestamp ?? null)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Message Rate">
+                        {stats?.messageRate ?? 0} msg/s
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Messages Today">
+                        {stats?.messagesToday ?? 0}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Cluster Mode">
+                        <Tag color={stats?.clusterEnabled ? 'success' : 'default'}>
+                          {stats?.clusterEnabled ? 'Enabled' : 'Disabled'}
+                        </Tag>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </Card>
+
+                  <Card title="Service Matrix" loading={loading}>
+                    <Table columns={runtimeColumns} dataSource={runtimeRows} pagination={false} size="small" />
+                  </Card>
+                </Space>
+              ),
+            },
+            {
+              key: 'api-reference',
+              label: (
+                <>
+                  <ApiOutlined /> API Reference
+                </>
+              ),
+              children: (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Card title="Frontend API Map">
+                    <Table columns={apiColumns} dataSource={API_REFERENCE} rowKey="key" pagination={false} />
+                  </Card>
+
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} lg={8}>
+                      <Card title="Register Request">
+                        <Paragraph copyable>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{REQUEST_EXAMPLES.register}</pre>
+                        </Paragraph>
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                      <Card title="Login Request">
+                        <Paragraph copyable>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{REQUEST_EXAMPLES.login}</pre>
+                        </Paragraph>
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                      <Card title="Push Message Request">
+                        <Paragraph copyable>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{REQUEST_EXAMPLES.pushMessage}</pre>
+                        </Paragraph>
+                      </Card>
+                    </Col>
+                  </Row>
+                </Space>
+              ),
+            },
+            {
+              key: 'notes',
+              label: (
+                <>
+                  <DatabaseOutlined /> Integration Notes
+                </>
+              ),
+              children: (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Card title="Known Limitations">
+                    <List
+                      dataSource={KNOWN_LIMITATIONS}
+                      renderItem={(item) => <List.Item>{item}</List.Item>}
+                    />
+                  </Card>
+
+                  <Card title="Recommended Next Backend Steps">
+                    <Paragraph>
+                      1. Implement server-side message-history storage behind <Text code>/admin/messages</Text>.
+                    </Paragraph>
+                    <Paragraph>
+                      2. Expose read and write endpoints for MQTT server config, cluster config, ACL config, and Redis settings.
+                    </Paragraph>
+                    <Paragraph>
+                      3. Add a side-effect-free broker preview endpoint so the UI can inspect routing without changing user state.
+                    </Paragraph>
+                    <Divider />
+                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      The current frontend is already wired so it can consume those endpoints with minimal follow-up work.
+                    </Paragraph>
+                  </Card>
+                </Space>
+              ),
+            },
+          ]}
         />
       </Card>
     </div>
@@ -458,3 +362,4 @@ const Settings: React.FC = () => {
 };
 
 export default Settings;
+
